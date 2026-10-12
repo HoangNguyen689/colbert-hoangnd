@@ -1,6 +1,6 @@
 # Mini-ColBERTv2
 
-Phiên bản tái cài đặt tối giản, dễ đọc của pipeline indexing và retrieval từ **ColBERTv2** (checkpoint `colbert-ir/colbertv2.0`), đánh giá trên tập SciFact. Repo giữ lại thuật toán cốt lõi — centroid quantization, nén residual 2-bit, IVF và MaxSim — nhưng lược bỏ phần lớn lớp engineering/optimization của repo chính thức để dễ hiểu, dễ sửa và dễ mở rộng.
+Phiên bản cài đặt tối giản của pipeline indexing và retrieval từ **ColBERTv2** (checkpoint `colbert-ir/colbertv2.0`), đánh giá trên tập SciFact. Repo giữ lại thuật toán cốt lõi - centroid quantization, nén residual 2-bit, IVF và MaxSim - nhưng lược bỏ phần lớn lớp engineering/optimization của repo chính thức để dễ hiểu, dễ sửa và dễ mở rộng.
 
 Repo cũng bổ sung thêm lớp **CAD-MaxSim** (Context-Aware Diversified MaxSim) như một bước re-rank đơn giản.
 
@@ -10,7 +10,7 @@ Repo cũng bổ sung thêm lớp **CAD-MaxSim** (Context-Aware Diversified MaxSi
 
 | Thành phần | Official ColBERTv2 | Mini-ColBERTv2 (repo này) |
 |---|---|---|
-| Checkpoint | `colbert-ir/colbertv2.0` | **giống** — không train lại |
+| Checkpoint | `colbert-ir/colbertv2.0` | **giống** - không train lại |
 | Encoder / token embeddings | BERT + projection + L2 normalize | **giống**, gọi `Checkpoint.queryFromText` / `docFromText` |
 | Xây dựng centroid | sampling, FAISS, tự chọn số partitions, hỗ trợ distributed | `sklearn.KMeans` đơn giản, cố định `K=8192` |
 | Nén residual | `ResidualCodec`, học bucket cutoffs/weights, bit-pack 1/2-bit | tự viết bucket quantization + bit-pack tùy chọn |
@@ -22,15 +22,12 @@ Repo cũng bổ sung thêm lớp **CAD-MaxSim** (Context-Aware Diversified MaxSi
 | MaxSim | CPU/CUDA optimized | PyTorch rõ ràng |
 | Multi-GPU / multiprocessing / resume / mmap | có | bỏ |
 | Tốc độ production | nhanh hơn nhiều | chậm hơn nhưng đủ cho SciFact |
-| Dễ đọc | khá khó | rất dễ |
 | CAD-MaxSim | không có | **có** |
 
 Tóm lại:
 
-> **Official repo** = thuật toán ColBERTv2 + engineering nặng để scale và chạy nhanh.  
+> **Official repo** = thuật toán ColBERTv2 + heavy engineering để scale và chạy nhanh.  
 > **Mini-ColBERTv2** = giữ encoder + centroid + residual 2-bit + IVF + MaxSim, bỏ distributed/chunk/CUDA/pruning phức tạp để dễ hiểu và sửa được.
-
-Chúng tôi cố tình **không** bỏ centroid/residual, vì nếu bỏ thì sẽ gần ColBERT v1 hơn là v2.
 
 ---
 
@@ -54,7 +51,7 @@ Chúng tôi cố tình **không** bỏ centroid/residual, vì nếu bỏ thì s�
 └── .gitignore
 ```
 
-`data/` và `outputs/` được sinh ra khi chạy và đã bị git ignore.
+`data/` và `outputs/` được sinh ra khi chạy.
 
 ---
 
@@ -154,7 +151,7 @@ python -m mini_colbert.compare_official \
 
 ## 5. Chạy trên Google Colab
 
-Mở [`Mini_ColBERTv2_SciFact.ipynb`](Mini_ColBERTv2_SciFact.ipynb) trong Colab với runtime GPU (T4 là đủ). Notebook tự clone repo, cài dependency, chạy full pipeline và in metrics.
+Mở [`Mini_ColBERTv2_SciFact.ipynb`](Mini_ColBERTv2_SciFact.ipynb) trong Colab với runtime GPU (T4). Notebook tự clone repo, cài dependency, chạy full pipeline và in metrics.
 
 Nên dùng GPU runtime cho:
 - encode toàn bộ SciFact
@@ -208,4 +205,4 @@ SciFact được tải tự động bởi `encode.py` qua BEIR và lưu trong `d
 
 ## 9. License
 
-Code trong repo này cung cấp cho mục đích giáo dục/nghiên cứu. Checkpoint ColBERT từ [colbert-ir/colbertv2.0](https://huggingface.co/colbert-ir/colbertv2.0) và tập SciFact từ BEIR.
+Code trong repo này cung cấp cho mục đích học tập - nghiên cứu. Checkpoint ColBERT từ [colbert-ir/colbertv2.0](https://huggingface.co/colbert-ir/colbertv2.0) và tập SciFact từ BEIR.
