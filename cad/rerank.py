@@ -34,7 +34,7 @@ def rerank_all(base_candidates, idf_dict, query_token_ids, qids, alpha=0.0, beta
 
         scores = rerank_query(cand['token_scores'], idf_vals, alpha=alpha, beta=beta)
         sorted_idx = scores.argsort(descending=True)
-        rankings[qid] = [cand['pids'][i] for i in sorted_idx.tolist()]
+        rankings[qid] = [cand['candidate_pids'][i] for i in sorted_idx.tolist()]
     return rankings
 
 

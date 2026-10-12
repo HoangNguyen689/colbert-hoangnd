@@ -72,7 +72,11 @@ class ColBERTSearcher:
         candidates = self.get_candidates(Q, ncells=ncells)
 
         if len(candidates) == 0:
-            return {'pids': [], 'scores': [], 'token_scores': torch.zeros(0, Q.shape[0])}
+            return {
+                'candidate_pids': [],
+                'candidate_scores': [],
+                'token_scores': torch.zeros(0, Q.shape[0]),
+            }
 
         emb, doclens_cand = self.reconstruct_candidates(candidates)
         sim = Q @ emb.T
@@ -92,8 +96,8 @@ class ColBERTSearcher:
         sorted_idx = scores.argsort(descending=True)[:candidate_topn]
 
         return {
-            'pids': [self.pids[candidates[i]] for i in sorted_idx[:output_topk].tolist()],
-            'scores': scores[sorted_idx[:output_topk]].tolist(),
+            'candidate_pids': [self.pids[candidates[i]] for i in sorted_idx.tolist()],
+            'candidate_scores': scores[sorted_idx].tolist(),
             'token_scores': token_scores[sorted_idx].cpu(),
         }
 
@@ -137,7 +141,7 @@ def main():
     print(f'Saved base candidates -> {args.output_candidates}')
 
     import json
-    ranking = {qid: res['pids'] for qid, res in results.items()}
+    ranking = {qid: res['candidate_pids'][:args.output_topk] for qid, res in results.items()}
     with open(args.output_ranking, 'w', encoding='utf-8') as f:
         json.dump(ranking, f)
     print(f'Saved original ranking -> {args.output_ranking}')
