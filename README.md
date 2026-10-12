@@ -147,7 +147,7 @@ Nên dùng GPU runtime cho encode full SciFact và search; CAD và evaluation ch
 Chạy trên Google Colab T4 với checkpoint `colbert-ir/colbertv2.0`, `K=8192`, `n_samples=200000`, `ncells=4`, `candidate_topn=200`, `output_topk=100`, residual 2-bit.
 
 | Biến thể | nDCG@10 | MRR@10 | Recall@100 |
-|---|---|---|---|---|
+|---|---|---|---|
 | Official ColBERTv2 | 0.6438 | 0.6120 | 0.8842 |
 | Mini Base (2-bit IVF) | 0.6411 | 0.6103 | 0.8916 |
 | IDF (α=1, β=0) | **0.6656** | **0.6367** | 0.8993 |
