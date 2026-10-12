@@ -99,7 +99,10 @@ python run_base.py \
 
 Lệnh này tải SciFact qua BEIR, encode, build index, nén residual, build IVF, search, và sinh ra:
 - `outputs/base_candidates.pt` — candidate set + per-token MaxSim `c_i(d)`
-- `outputs/rankings_original.json` — ranking Original MaxSim
+  - `candidate_pids`: list length `candidate_topn` (mặc định 200)
+  - `candidate_scores`: list length `candidate_topn`
+  - `token_scores`: tensor shape `(candidate_topn, 32)`
+- `outputs/rankings_original.json` — ranking Original MaxSim top-`output_topk` (mặc định 100)
 
 Trên máy có GPU thì dùng `--device cuda`.
 
@@ -141,26 +144,22 @@ Nên dùng GPU runtime cho encode full SciFact và search; CAD và evaluation ch
 
 ## 6. Kết quả trên SciFact (300 test queries)
 
-Kết quả dưới đây là từ lần chạy trước trên Mac M4 (`K=8192`, sample 100k, `ncells=4`, residual 2-bit, top-100 rerank). Sau khi tách `candidate_topn=200` / `output_topk=100`, kết quả Recall@100 có thể khác nhau giữa các biến thể. Bảng cuối cùng từ chạy Colab sẽ được cập nhật sau.
-
-Baseline ColBERTv2 chính thức (`colbert-ir/colbertv2.0`):
-
-| Metric | Official |
-|---|---|
-| nDCG@10 | 0.6438 |
-| MRR@10 | 0.6120 |
-| Recall@100 | 0.8842 |
-
-Mini-ColBERTv2:
+Chạy trên Google Colab T4 với checkpoint `colbert-ir/colbertv2.0`, `K=8192`, `n_samples=200000`, `ncells=4`, `candidate_topn=200`, `output_topk=100`, residual 2-bit.
 
 | Biến thể | nDCG@10 | MRR@10 | Recall@100 |
-|---|---|---|---|
-| Original MaxSim (2-bit IVF) | 0.6466 | 0.6147 | 0.8942 |
-| IDF (α=1, β=0) | **0.6731** | **0.6440** | 0.8942 |
-| Adaptive (α=0, β=1) | 0.6278 | 0.5961 | 0.8942 |
-| CAD (α=1, β=1) | 0.6552 | 0.6264 | 0.8942 |
+|---|---|---|---|---|
+| Official ColBERTv2 | 0.6438 | 0.6120 | 0.8842 |
+| Mini Base (2-bit IVF) | 0.6411 | 0.6103 | 0.8916 |
+| IDF (α=1, β=0) | **0.6656** | **0.6367** | 0.8993 |
+| Adaptive (α=0, β=1) | 0.6210 | 0.5903 | 0.8953 |
+| CAD (α=1, β=1) | 0.6495 | 0.6204 | 0.8987 |
 
-Original MaxSim đã sát với official, chứng tỏ centroid + residual 2-bit + IVF được implement đúng. IDF weighting cho kết quả tốt nhất trong 4 ablations.
+Nhận xét:
+
+- Mini Base gần sát Official ColBERTv2 → centroid + residual 2-bit + IVF được implement đúng.
+- IDF đơn thuần cho kết quả tốt nhất (+2.45 nDCG@10, +2.64 MRR@10 so với Mini Base).
+- Adaptive (std-dev theo candidate pool) làm giảm chất lượng, có thể vì 200 candidates quá ít để ước lượng độ quan trọng token ổn định.
+- CAD kết hợp IDF + Adaptive thua IDF đơn thuần, cho thấy thành phần β cần được tinh chỉnh (grid-search) hoặc thay thế bằng độ đo khác.
 
 ---
 
