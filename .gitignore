@@ -21,9 +21,3 @@ outputs/
 
 # OS
 .DS_Store
-
-# Temporary test scripts (kept locally only)
-test_checkpoint.py
-test_smoke.py
-add_query_masks.py
-run_exact.py

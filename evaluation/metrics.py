@@ -1,12 +1,8 @@
 """
-evaluate.py
+evaluation/metrics.py
 Compute nDCG@10, MRR@10, Recall@100 from rankings and qrels.
 """
-import argparse
 import json
-from pathlib import Path
-
-import torch
 import numpy as np
 
 
@@ -67,25 +63,6 @@ def evaluate(rankings, qrels):
     }
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--rankings', required=True)
-    parser.add_argument('--qrels', default='outputs/qrels_test.json')
-    args = parser.parse_args()
-
-    if args.rankings.endswith('.pt'):
-        results = torch.load(args.rankings, map_location='cpu')
-        rankings = {qid: data['pids'] for qid, data in results.items()}
-    else:
-        with open(args.rankings, 'r', encoding='utf-8') as f:
-            rankings = json.load(f)
-    with open(args.qrels, 'r', encoding='utf-8') as f:
-        qrels = json.load(f)
-
-    metrics = evaluate(rankings, qrels)
-    for k, v in metrics.items():
-        print(f'{k}: {v:.4f}')
-
-
-if __name__ == '__main__':
-    main()
+def load_json(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)

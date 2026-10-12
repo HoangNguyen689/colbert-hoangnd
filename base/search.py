@@ -1,15 +1,15 @@
 """
-search.py
+base/search.py
 ColBERTv2 approximate search with IVF + residual decompression + MaxSim.
-Vectorized over candidates for speed.
+Outputs per-query candidate set including per-token MaxSim scores.
 """
 import argparse
 from pathlib import Path
 
 import torch
-import numpy as np
 
-from mini_colbert.residual import dequantize_residuals, unpack_bits
+from base.residual import dequantize_residuals, unpack_bits
+from base.maxsim import maxsim_per_token
 
 
 class ColBERTSearcher:
@@ -25,13 +25,11 @@ class ColBERTSearcher:
         self.doclens = metadata['doclens']
         self.pids = metadata['pids']
 
-        # Build passage offset map
         self.offsets = [0]
         for length in self.doclens:
             self.offsets.append(self.offsets[-1] + length)
         self.offsets = torch.tensor(self.offsets, dtype=torch.long, device=device)
 
-        # Load quantized residuals
         residual_data = torch.load(self.index_dir / 'residuals.pt', map_location='cpu')
         self.bucket_weights = residual_data['bucket_weights'].to(device)
         if 'packed' in residual_data:
@@ -40,17 +38,11 @@ class ColBERTSearcher:
             self.residual_idx = residual_data['idx'].to(device)
 
         self.K = self.centroids.shape[0]
-        self.dim = self.centroids.shape[1]
 
-    def reconstruct_candidate_embeddings(self, candidate_pid_indices):
-        """
-        Vectorized reconstruction of all token embeddings for candidate passages.
-        Returns (all_embeddings, doclens_candidates)
-        """
+    def reconstruct_candidates(self, candidate_pid_indices):
         starts = self.offsets[candidate_pid_indices]
         ends = self.offsets[torch.tensor([i + 1 for i in candidate_pid_indices], device=self.device)]
 
-        # Build global token indices
         token_indices = torch.cat([
             torch.arange(start.item(), end.item(), device=self.device)
             for start, end in zip(starts, ends)
@@ -65,12 +57,8 @@ class ColBERTSearcher:
         return emb, doclens_candidates
 
     def get_candidates(self, Q, ncells=4):
-        """
-        Q: (query_len, dim) tensor
-        Returns list of passage indices that share at least one centroid with query tokens.
-        """
-        scores = Q @ self.centroids.T  # (Q_len, K)
-        top_cids = scores.topk(ncells, dim=-1, largest=True).indices  # (Q_len, ncells)
+        scores = Q @ self.centroids.T
+        top_cids = scores.topk(ncells, dim=-1, largest=True).indices
         top_cids = top_cids.flatten().unique().tolist()
 
         cand = set()
@@ -79,41 +67,39 @@ class ColBERTSearcher:
                 cand.update(self.ivf[cid])
         return sorted(list(cand))
 
-    def score_query(self, Q, ncells=4, topk=100):
-        """
-        Q: (query_len, dim) tensor
-        Returns (pids, scores) sorted by descending MaxSim score.
-        """
+    def search_query(self, Q, ncells=4, topk=100):
         Q = torch.nn.functional.normalize(Q, p=2, dim=-1)
         candidates = self.get_candidates(Q, ncells=ncells)
 
         if len(candidates) == 0:
-            return [], []
+            return {'pids': [], 'scores': [], 'token_scores': torch.zeros(0, Q.shape[0])}
 
-        emb, doclens_cand = self.reconstruct_candidate_embeddings(candidates)
-        sim = Q @ emb.T  # (query_len, total_tokens)
+        emb, doclens_cand = self.reconstruct_candidates(candidates)
+        sim = Q @ emb.T
 
+        token_scores = []
         scores = []
         offset = 0
         for length in doclens_cand:
-            doc_sim = sim[:, offset:offset+length]
-            scores.append(doc_sim.max(dim=-1).values.sum().item())
+            ts = sim[:, offset:offset+length].max(dim=-1).values
+            token_scores.append(ts)
+            scores.append(ts.sum().item())
             offset += length
 
+        token_scores = torch.stack(token_scores, dim=0)
         scores = torch.tensor(scores, device=self.device)
         sorted_idx = scores.argsort(descending=True)[:topk]
-        return [self.pids[candidates[i]] for i in sorted_idx.tolist()], scores[sorted_idx].tolist()
+
+        return {
+            'pids': [self.pids[candidates[i]] for i in sorted_idx.tolist()],
+            'scores': scores[sorted_idx].tolist(),
+            'token_scores': token_scores[sorted_idx].cpu(),
+        }
 
     def batch_search(self, Qs, qids, ncells=4, topk=100):
-        """
-        Qs: (N_queries, query_len, dim) tensor
-        qids: list[str]
-        Returns dict qid -> {pids: [...], scores: [...]}
-        """
         results = {}
         for qid, Q in zip(qids, Qs):
-            pids, scores = self.score_query(Q, ncells=ncells, topk=topk)
-            results[qid] = {'pids': pids, 'scores': scores}
+            results[qid] = self.search_query(Q, ncells=ncells, topk=topk)
         return results
 
 
@@ -121,10 +107,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--index_dir', default='outputs')
     parser.add_argument('--query_emb', default='outputs/query_embeddings.pt')
-    parser.add_argument('--output', default='outputs/search_results.pt')
+    parser.add_argument('--output_candidates', default='outputs/base_candidates.pt')
+    parser.add_argument('--output_ranking', default='outputs/rankings_original.json')
     parser.add_argument('--ncells', type=int, default=4)
     parser.add_argument('--topk', type=int, default=100)
-    parser.add_argument('--device', default=None, help='cpu/mps/cuda; default=mps if available else cpu')
+    parser.add_argument('--device', default=None)
     args = parser.parse_args()
 
     device = args.device or ('mps' if torch.backends.mps.is_available() else 'cpu')
@@ -136,8 +123,15 @@ def main():
     qids = qdata['qids']
 
     results = searcher.batch_search(Qs, qids, ncells=args.ncells, topk=args.topk)
-    torch.save(results, args.output)
-    print(f'Saved search results -> {args.output}')
+
+    torch.save(results, args.output_candidates)
+    print(f'Saved base candidates -> {args.output_candidates}')
+
+    import json
+    ranking = {qid: res['pids'] for qid, res in results.items()}
+    with open(args.output_ranking, 'w', encoding='utf-8') as f:
+        json.dump(ranking, f)
+    print(f'Saved original ranking -> {args.output_ranking}')
 
 
 if __name__ == '__main__':

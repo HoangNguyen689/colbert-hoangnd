@@ -1,8 +1,8 @@
 """
-build_index.py
+base/index.py
 Build k-means centroids on document token embeddings and assign each token to a centroid.
 Outputs:
-  outputs/centroids.pt -> centroids (K, dim)
+  outputs/centroids.pt -> centroids (K, dim) L2-normalized
   outputs/codes.pt     -> codes (N_tokens,) long
 """
 import argparse
@@ -14,7 +14,6 @@ from tqdm import tqdm
 
 
 def sample_embeddings(D, n_samples=200000, seed=42):
-    """Sample a subset of token embeddings for k-means training."""
     N = D.shape[0]
     if N <= n_samples:
         return D
@@ -24,7 +23,6 @@ def sample_embeddings(D, n_samples=200000, seed=42):
 
 
 def build_centroids(D, K=8192, n_samples=200000, seed=42, verbose=True):
-    """Run k-means on sampled token embeddings, then L2-normalize centroids."""
     sample = sample_embeddings(D, n_samples, seed)
     print(f'K-means sample: {sample.shape} -> K={K}')
     sample_np = sample.numpy()
@@ -36,13 +34,10 @@ def build_centroids(D, K=8192, n_samples=200000, seed=42, verbose=True):
 
 
 def assign_codes(D, centroids, batch_size=65536):
-    """Assign each token embedding to nearest centroid via max inner product.
-    Both D and centroids are assumed L2-normalized (cosine similarity).
-    """
     codes = []
     for i in tqdm(range(0, D.shape[0], batch_size), desc='Assigning codes'):
         batch = D[i:i+batch_size]
-        scores = batch @ centroids.T  # (batch, K)
+        scores = batch @ centroids.T
         codes.append(scores.argmax(dim=1).cpu())
     return torch.cat(codes, dim=0)
 

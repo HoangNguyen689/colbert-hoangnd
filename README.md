@@ -35,23 +35,35 @@ Tóm lại:
 
 ```
 .
-├── mini_colbert/
+├── base/                      # Mini-ColBERTv2 thuần
 │   ├── encode.py              # checkpoint → Q/D embeddings
-│   ├── build_index.py         # k-means → centroids + codes
+│   ├── index.py               # k-means → centroids + codes
 │   ├── compress_residuals.py  # lượng tử hóa residual 2-bit
 │   ├── residual.py            # helper quantize / dequantize
 │   ├── ivf.py                 # centroid → passage ids
 │   ├── search.py              # IVF candidate generation + MaxSim
-│   ├── cad_maxsim.py          # 4 ablations của CAD-MaxSim
-│   ├── evaluate.py            # nDCG@10, MRR@10, Recall@100
-│   ├── validate.py            # kiểm tra approximate vs exact MaxSim
+│   └── maxsim.py              # per-token MaxSim + score
+├── cad/                       # CAD-MaxSim extension
+│   ├── idf.py                 # corpus-level IDF
+│   ├── weighting.py           # CAD weight formula
+│   └── rerank.py              # rerank từ base candidates
+├── evaluation/                # chỉ đọc ranking → metrics
+│   ├── metrics.py             # nDCG@10, MRR@10, Recall@100
 │   └── compare_official.py    # so sánh với baseline official
+├── run_base.py                # pipeline BASE end-to-end
+├── run_cad.py                 # pipeline CAD end-to-end
+├── run_evaluate.py            # in bảng metrics
 ├── Mini_ColBERTv2_SciFact.ipynb  # notebook chạy trên Colab
 ├── README.md
 └── .gitignore
 ```
 
 `data/` và `outputs/` được sinh ra khi chạy.
+
+**Nguyên tắc tách biệt:**
+- `base/` không biết gì về CAD.
+- `cad/` chỉ đọc `outputs/base_candidates.pt` (chứa `pids`, `scores`, `token_scores`); không chạy retrieval hay giải nén lại.
+- `evaluation/` chỉ đọc ranking JSON + qrels; không cần checkpoint/GPU/embeddings.
 
 ---
 
@@ -69,94 +81,60 @@ pip install torch transformers scikit-learn datasets beir tqdm numpy colbert-ai
 
 ## 4. Chạy local
 
-### 4.1 Encode SciFact
+### 4.1 Chạy toàn bộ BASE
 
 ```bash
-python -m mini_colbert.encode \
+python run_base.py \
   --data_root data \
   --output_dir outputs \
+  --K 8192 \
+  --n_samples 100000 \
+  --ncells 4 \
+  --topk 100 \
+  --device cpu \
   --doc_batch_size 32 \
   --query_batch_size 32
 ```
 
-Lệnh này tải SciFact qua BEIR và sinh ra:
-- `outputs/doc_embeddings.pt`
-- `outputs/query_embeddings.pt`
-- `outputs/qrels_test.json`
-
-### 4.2 Build index
-
-```bash
-python -m mini_colbert.build_index \
-  --emb_path outputs/doc_embeddings.pt \
-  --output_dir outputs \
-  --K 8192 \
-  --n_samples 100000
-
-python -m mini_colbert.compress_residuals \
-  --emb_path outputs/doc_embeddings.pt \
-  --centroids_path outputs/centroids.pt \
-  --codes_path outputs/codes.pt \
-  --output_dir outputs \
-  --nbits 2
-
-python -m mini_colbert.ivf \
-  --emb_path outputs/doc_embeddings.pt \
-  --codes_path outputs/codes.pt \
-  --output_dir outputs
-```
-
-### 4.3 Search
-
-```bash
-python -m mini_colbert.search \
-  --index_dir outputs \
-  --query_emb outputs/query_embeddings.pt \
-  --output outputs/search_results.pt \
-  --ncells 4 \
-  --topk 100 \
-  --device cpu
-```
+Lệnh này tải SciFact qua BEIR, encode, build index, nén residual, build IVF, search, và sinh ra:
+- `outputs/base_candidates.pt` — candidate set + per-token MaxSim `c_i(d)`
+- `outputs/rankings_original.json` — ranking Original MaxSim
 
 Trên máy có GPU thì dùng `--device cuda`.
 
-### 4.4 CAD-MaxSim 4 ablations
+### 4.2 Chạy CAD
 
 ```bash
-python -m mini_colbert.cad_maxsim \
-  --index_dir outputs \
-  --query_emb outputs/query_embeddings.pt \
-  --qrels outputs/qrels_test.json \
-  --output_dir outputs \
-  --ncells 4 \
-  --topk 100 \
-  --device cpu
+python run_cad.py --output_dir outputs --topk 100
 ```
 
-Sinh ra `outputs/rankings_{original,idf,adaptive,cad}.json`.
+CAD **không chạy retrieval lại**, chỉ đọc `base_candidates.pt`, tính IDF/std-dev, rồi rerank cùng candidate set với 4 ablations:
+- `outputs/rankings_original.json`
+- `outputs/rankings_idf.json`
+- `outputs/rankings_adaptive.json`
+- `outputs/rankings_cad.json`
 
-### 4.5 Đánh giá
+### 4.3 Đánh giá
 
 ```bash
-python -m mini_colbert.evaluate \
-  --rankings outputs/rankings_original.json \
-  --qrels outputs/qrels_test.json
-
-python -m mini_colbert.compare_official \
-  --rankings outputs/rankings_original.json \
-  --qrels outputs/qrels_test.json
+python run_evaluate.py --output_dir outputs --qrels outputs/qrels_test.json
 ```
+
+In bảng so sánh Official / Mini Base / IDF / Adaptive / CAD.
 
 ---
 
 ## 5. Chạy trên Google Colab
 
-Mở [`Mini_ColBERTv2_SciFact.ipynb`](Mini_ColBERTv2_SciFact.ipynb) trong Colab với runtime GPU (T4). Notebook tự clone repo, cài dependency, chạy full pipeline và in metrics.
+Mở [`Mini_ColBERTv2_SciFact.ipynb`](Mini_ColBERTv2_SciFact.ipynb) trong Colab với runtime GPU (T4 là đủ). Notebook tự clone repo, cài dependency, rồi chạy 3 lệnh:
 
-Nên dùng GPU runtime cho:
-- encode toàn bộ SciFact
-- k-means `K=8192` (vẫn chạy CPU qua sklearn nhưng end-to-end nhanh hơn)
-- đánh giá 300 query
+```bash
+python run_base.py --output_dir outputs --K 8192 --n_samples 200000 --ncells 4 --topk 100 --device cuda
+python run_cad.py --output_dir outputs --topk 100
+python run_evaluate.py --output_dir outputs
+```
+
+Nên dùng GPU runtime cho encode full SciFact và search; CAD và evaluation chạy CPU cũng nhanh.
 
 ---
 

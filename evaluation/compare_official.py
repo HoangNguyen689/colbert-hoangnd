@@ -1,16 +1,11 @@
 """
-compare_official.py
+evaluation/compare_official.py
 Compare Mini-ColBERTv2 metrics against official ColBERTv2 baseline on SciFact.
-Official baseline (checkpoint colbert-ir/colbertv2.0):
-  nDCG@10  = 0.6438
-  MRR@10   = 0.6120
-  Recall@100 = 0.8842
 """
 import argparse
-import json
 from pathlib import Path
 
-from mini_colbert.evaluate import evaluate
+from evaluation.metrics import evaluate, load_json
 
 
 OFFICIAL_BASELINE = {
@@ -32,22 +27,19 @@ def compare(metrics, official=OFFICIAL_BASELINE):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--rankings', required=True, help='Mini-ColBERTv2 rankings JSON')
+    parser.add_argument('--rankings', required=True)
     parser.add_argument('--qrels', default='outputs/qrels_test.json')
-    parser.add_argument('--official_rankings', default=None, help='Optional official rankings JSON')
+    parser.add_argument('--official_rankings', default=None)
     args = parser.parse_args()
 
-    with open(args.rankings, 'r', encoding='utf-8') as f:
-        mini_rankings = json.load(f)
-    with open(args.qrels, 'r', encoding='utf-8') as f:
-        qrels = json.load(f)
+    mini_rankings = load_json(args.rankings)
+    qrels = load_json(args.qrels)
 
     mini_metrics = evaluate(mini_rankings, qrels)
 
     official = OFFICIAL_BASELINE
     if args.official_rankings:
-        with open(args.official_rankings, 'r', encoding='utf-8') as f:
-            official_rankings = json.load(f)
+        official_rankings = load_json(args.official_rankings)
         official = evaluate(official_rankings, qrels)
 
     compare(mini_metrics, official)
