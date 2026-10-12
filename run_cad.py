@@ -26,6 +26,7 @@ def main():
     parser.add_argument('--data_root', default='data')
     parser.add_argument('--output_dir', default='outputs')
     parser.add_argument('--topk', type=int, default=100)
+    parser.add_argument('--tune', action='store_true', help='run hyperparameter grid search tuning')
     args = parser.parse_args()
 
     out = Path(args.output_dir)
@@ -37,6 +38,11 @@ def main():
     run(f'python -m cad.rerank --candidates {out / "base_candidates.pt"} '
         f'--query_emb {out / "query_embeddings.pt"} --idf {out / "idf.pt"} '
         f'--output_dir {args.output_dir} --topk {args.topk}')
+
+    if args.tune:
+        run(f'python -m cad.tune_cad --candidates {out / "base_candidates.pt"} '
+            f'--query_emb {out / "query_embeddings.pt"} --idf {out / "idf.pt"} '
+            f'--output_dir {args.output_dir} --topk {args.topk}')
 
     print('\nCAD pipeline complete.')
 
