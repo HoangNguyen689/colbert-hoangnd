@@ -3,7 +3,6 @@ validate.py
 Validate approximate MaxSim against exact MaxSim on original uncompressed embeddings.
 """
 import argparse
-import json
 from pathlib import Path
 
 import torch
@@ -13,7 +12,7 @@ from scipy.stats import kendalltau
 from mini_colbert.search import ColBERTSearcher
 
 
-def exact_maxsim(Q, D, doclens, pids, query_mask=None):
+def exact_maxsim(Q, D, doclens, pids):
     """
     Q: (Q_len, dim)
     D: (N_tokens, dim)
@@ -22,9 +21,6 @@ def exact_maxsim(Q, D, doclens, pids, query_mask=None):
     Q = torch.nn.functional.normalize(Q, p=2, dim=-1)
     D = torch.nn.functional.normalize(D, p=2, dim=-1)
     sim = Q @ D.T  # (Q_len, N_tokens)
-
-    if query_mask is not None:
-        sim = sim[query_mask]
 
     scores = {}
     offset = 0
@@ -35,7 +31,7 @@ def exact_maxsim(Q, D, doclens, pids, query_mask=None):
     return scores
 
 
-def approximate_maxsim(searcher, Q, mask=None, ncells=4):
+def approximate_maxsim(searcher, Q, ncells=4):
     """Return dict pid -> score from approximate search."""
     Q = torch.nn.functional.normalize(Q, p=2, dim=-1)
     candidates = searcher.get_candidates(Q, ncells=ncells)
@@ -44,8 +40,6 @@ def approximate_maxsim(searcher, Q, mask=None, ncells=4):
         return scores
     emb, doclens_cand = searcher.reconstruct_candidate_embeddings(candidates)
     sim = Q @ emb.T
-    if mask is not None:
-        sim = sim[mask]
     offset = 0
     for pid_idx, length in zip(candidates, doclens_cand):
         doc_sim = sim[:, offset:offset+length]
@@ -77,6 +71,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--index_dir', default='outputs')
     parser.add_argument('--query_emb', default='outputs/query_embeddings.pt')
+    parser.add_argument('--emb_path', default='outputs/doc_embeddings.pt')
     parser.add_argument('--n_queries', type=int, default=10)
     parser.add_argument('--ncells', type=int, default=4)
     parser.add_argument('--device', default=None)
@@ -85,20 +80,16 @@ def main():
     device = args.device or ('mps' if torch.backends.mps.is_available() else 'cpu')
     searcher = ColBERTSearcher(args.index_dir, device=device)
     qdata = torch.load(args.query_emb, map_location='cpu')
-    emb = torch.load(args.index_dir / Path('doc_embeddings.pt'), map_location='cpu')
+    emb = torch.load(args.emb_path, map_location='cpu')
     D = emb['D']
-    masks = qdata.get('masks', None)
 
     qids = qdata['qids'][:args.n_queries]
     Qs = qdata['Q'][:args.n_queries]
-    if masks is not None:
-        masks = masks[:args.n_queries]
 
-    for i, (qid, Q) in enumerate(zip(qids, Qs)):
+    for qid, Q in zip(qids, Qs):
         print(f'\nQuery: {qid}')
-        mask = masks[i].bool() if masks is not None else None
-        exact_scores = exact_maxsim(Q, D, emb['doclens'], emb['pids'], query_mask=mask)
-        approx_scores = approximate_maxsim(searcher, Q.to(device), mask=mask, ncells=args.ncells)
+        exact_scores = exact_maxsim(Q, D, emb['doclens'], emb['pids'])
+        approx_scores = approximate_maxsim(searcher, Q.to(device), ncells=args.ncells)
         compare_rankings(exact_scores, approx_scores, topk=10)
 
 

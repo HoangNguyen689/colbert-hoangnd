@@ -35,9 +35,10 @@ def main():
     parser.add_argument('--output_dir', default='outputs')
     args = parser.parse_args()
 
-    emb = torch.load(args.emb_path, map_location='cpu')
+    metadata_path = Path(args.emb_path).parent / 'metadata.pt'
+    metadata = torch.load(metadata_path, map_location='cpu')
     codes = torch.load(args.codes_path, map_location='cpu')
-    doclens = emb['doclens']
+    doclens = metadata['doclens']
 
     ivf = build_ivf(codes, doclens)
     out_path = Path(args.output_dir) / 'ivf.pt'

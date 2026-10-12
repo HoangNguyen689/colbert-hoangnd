@@ -22,33 +22,48 @@ def compute_residuals(D, centroids, codes):
 
 def fit_residual_buckets(residuals, nbits=2):
     """
-    Fit uniform quantization buckets per dimension.
-    Returns (lowers, steps, levels) where levels = 2**nbits.
-    For official-like quality one could fit k-means per dim; uniform is simple & fast.
+    Fit official-style quantile buckets per dimension.
+    Returns (cutoffs, bucket_weights) where levels = 2**nbits.
+    cutoffs: (levels-1, dim)
+    bucket_weights: (levels, dim) mean residual value in each bucket
     """
     levels = 2 ** nbits
-    lo = residuals.min(dim=0).values
-    hi = residuals.max(dim=0).values
-    step = (hi - lo) / levels
-    return lo, step, levels
+    # Quantile cutoffs divide residuals into equal-frequency buckets
+    quantiles = torch.linspace(1.0 / levels, 1.0 - 1.0 / levels, levels - 1)
+    cutoffs = torch.quantile(residuals, quantiles, dim=0)  # (levels-1, dim)
+
+    # Reconstruction weights: mean residual in each bucket per dimension
+    idx = quantize_residuals(residuals, cutoffs)  # (N, dim) in [0, levels)
+    bucket_weights = torch.zeros(levels, residuals.shape[1], dtype=residuals.dtype)
+    for b in range(levels):
+        mask = (idx == b).float()
+        bucket_weights[b] = (residuals * mask).sum(0) / (mask.sum(0) + 1e-8)
+    return cutoffs, bucket_weights
 
 
-def quantize_residuals(residuals, lo, step, levels):
+def quantize_residuals(residuals, cutoffs):
     """
     Quantize residuals to bucket indices in [0, levels).
+    cutoffs: (levels-1, dim)
     Returns (N, dim) uint8 indices.
     """
-    norm = (residuals - lo) / (step + 1e-8)
-    idx = torch.clamp(norm.long(), 0, levels - 1)
+    residuals = residuals.contiguous()
+    idx = torch.zeros_like(residuals, dtype=torch.uint8)
+    for d in range(residuals.shape[1]):
+        idx[:, d] = torch.bucketize(residuals[:, d].contiguous(), cutoffs[:, d].contiguous())
     return idx
 
 
-def dequantize_residuals(idx, lo, step):
+def dequantize_residuals(idx, bucket_weights):
     """
-    idx: (N, dim) long in [0, levels)
+    idx: (N, dim) long/uint8 in [0, levels)
+    bucket_weights: (levels, dim)
     returns residuals_hat (N, dim)
     """
-    return lo + (idx + 0.5) * step
+    N, dim = idx.shape
+    idx = idx.long()
+    dims = torch.arange(dim, device=idx.device).unsqueeze(0).expand(N, dim)
+    return bucket_weights[idx, dims]
 
 
 def pack_bits(idx, nbits=2):

@@ -24,23 +24,26 @@ def sample_embeddings(D, n_samples=200000, seed=42):
 
 
 def build_centroids(D, K=8192, n_samples=200000, seed=42, verbose=True):
-    """Run k-means on sampled token embeddings."""
+    """Run k-means on sampled token embeddings, then L2-normalize centroids."""
     sample = sample_embeddings(D, n_samples, seed)
     print(f'K-means sample: {sample.shape} -> K={K}')
     sample_np = sample.numpy()
     kmeans = KMeans(n_clusters=K, random_state=seed, n_init=1, max_iter=50, verbose=verbose)
     kmeans.fit(sample_np)
     centroids = torch.from_numpy(kmeans.cluster_centers_).float()
+    centroids = torch.nn.functional.normalize(centroids, p=2, dim=-1)
     return centroids
 
 
 def assign_codes(D, centroids, batch_size=65536):
-    """Assign each token embedding to nearest centroid."""
+    """Assign each token embedding to nearest centroid via max inner product.
+    Both D and centroids are assumed L2-normalized (cosine similarity).
+    """
     codes = []
     for i in tqdm(range(0, D.shape[0], batch_size), desc='Assigning codes'):
         batch = D[i:i+batch_size]
-        dist = torch.cdist(batch, centroids, p=2)
-        codes.append(dist.argmin(dim=1).cpu())
+        scores = batch @ centroids.T  # (batch, K)
+        codes.append(scores.argmax(dim=1).cpu())
     return torch.cat(codes, dim=0)
 
 

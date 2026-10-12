@@ -21,9 +21,9 @@ class ColBERTSearcher:
         self.centroids = torch.load(self.index_dir / 'centroids.pt', map_location='cpu').to(device)
         self.codes = torch.load(self.index_dir / 'codes.pt', map_location='cpu').to(device)
         self.ivf = torch.load(self.index_dir / 'ivf.pt')
-        emb = torch.load(self.index_dir / 'doc_embeddings.pt', map_location='cpu')
-        self.doclens = emb['doclens']
-        self.pids = emb['pids']
+        metadata = torch.load(self.index_dir / 'metadata.pt', map_location='cpu')
+        self.doclens = metadata['doclens']
+        self.pids = metadata['pids']
 
         # Build passage offset map
         self.offsets = [0]
@@ -33,8 +33,7 @@ class ColBERTSearcher:
 
         # Load quantized residuals
         residual_data = torch.load(self.index_dir / 'residuals.pt', map_location='cpu')
-        self.residual_lo = residual_data['lo'].to(device)
-        self.residual_step = residual_data['step'].to(device)
+        self.bucket_weights = residual_data['bucket_weights'].to(device)
         if 'packed' in residual_data:
             self.residual_idx = unpack_bits(residual_data['packed'], (self.codes.shape[0], self.centroids.shape[1]), nbits=nbits).to(device)
         else:
@@ -50,7 +49,6 @@ class ColBERTSearcher:
         """
         starts = self.offsets[candidate_pid_indices]
         ends = self.offsets[torch.tensor([i + 1 for i in candidate_pid_indices], device=self.device)]
-        total_tokens = (ends - starts).sum().item()
 
         # Build global token indices
         token_indices = torch.cat([
@@ -60,7 +58,7 @@ class ColBERTSearcher:
 
         c = self.codes[token_indices]
         ridx = self.residual_idx[token_indices]
-        emb = self.centroids[c] + dequantize_residuals(ridx, self.residual_lo, self.residual_step)
+        emb = self.centroids[c] + dequantize_residuals(ridx, self.bucket_weights)
         emb = torch.nn.functional.normalize(emb, p=2, dim=-1)
 
         doclens_candidates = [self.doclens[i] for i in candidate_pid_indices]
@@ -71,8 +69,8 @@ class ColBERTSearcher:
         Q: (query_len, dim) tensor
         Returns list of passage indices that share at least one centroid with query tokens.
         """
-        q_centroid_dists = torch.cdist(Q, self.centroids, p=2)  # (Q_len, K)
-        top_cids = q_centroid_dists.topk(ncells, dim=-1, largest=False).indices  # (Q_len, ncells)
+        scores = Q @ self.centroids.T  # (Q_len, K)
+        top_cids = scores.topk(ncells, dim=-1, largest=True).indices  # (Q_len, ncells)
         top_cids = top_cids.flatten().unique().tolist()
 
         cand = set()
@@ -81,10 +79,9 @@ class ColBERTSearcher:
                 cand.update(self.ivf[cid])
         return sorted(list(cand))
 
-    def score_query(self, Q, mask=None, ncells=4, topk=100):
+    def score_query(self, Q, ncells=4, topk=100):
         """
         Q: (query_len, dim) tensor
-        mask: (query_len,) bool tensor; True for real query tokens
         Returns (pids, scores) sorted by descending MaxSim score.
         """
         Q = torch.nn.functional.normalize(Q, p=2, dim=-1)
@@ -95,8 +92,6 @@ class ColBERTSearcher:
 
         emb, doclens_cand = self.reconstruct_candidate_embeddings(candidates)
         sim = Q @ emb.T  # (query_len, total_tokens)
-        if mask is not None:
-            sim = sim[mask]
 
         scores = []
         offset = 0
@@ -109,18 +104,15 @@ class ColBERTSearcher:
         sorted_idx = scores.argsort(descending=True)[:topk]
         return [self.pids[candidates[i]] for i in sorted_idx.tolist()], scores[sorted_idx].tolist()
 
-    def batch_search(self, Qs, qids, masks=None, ncells=4, topk=100):
+    def batch_search(self, Qs, qids, ncells=4, topk=100):
         """
         Qs: (N_queries, query_len, dim) tensor
         qids: list[str]
-        masks: (N_queries, query_len) bool tensor
         Returns dict qid -> {pids: [...], scores: [...]}
         """
         results = {}
-        if masks is None:
-            masks = [None] * len(qids)
-        for qid, Q, mask in zip(qids, Qs, masks):
-            pids, scores = self.score_query(Q, mask=mask, ncells=ncells, topk=topk)
+        for qid, Q in zip(qids, Qs):
+            pids, scores = self.score_query(Q, ncells=ncells, topk=topk)
             results[qid] = {'pids': pids, 'scores': scores}
         return results
 
@@ -141,12 +133,9 @@ def main():
     searcher = ColBERTSearcher(args.index_dir, device=device)
     qdata = torch.load(args.query_emb, map_location='cpu')
     Qs = qdata['Q'].to(device)
-    masks = qdata.get('masks', None)
-    if masks is not None:
-        masks = masks.to(device).bool()
     qids = qdata['qids']
 
-    results = searcher.batch_search(Qs, qids, masks=masks, ncells=args.ncells, topk=args.topk)
+    results = searcher.batch_search(Qs, qids, ncells=args.ncells, topk=args.topk)
     torch.save(results, args.output)
     print(f'Saved search results -> {args.output}')
 

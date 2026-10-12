@@ -7,6 +7,7 @@ Outputs:
 """
 import os
 import json
+import math
 import argparse
 from pathlib import Path
 
@@ -64,7 +65,7 @@ def load_checkpoint(checkpoint_name: str = 'colbert-ir/colbertv2.0'):
     return cp
 
 
-def encode_corpus(cp, corpus, out_path, batch_size=32):
+def encode_corpus(cp, corpus, out_path, metadata_path, batch_size=32):
     pids = list(corpus.keys())
     docs = [corpus[pid] for pid in pids]
 
@@ -81,7 +82,12 @@ def encode_corpus(cp, corpus, out_path, batch_size=32):
         'doclens': all_doclens,
         'pids': pids,
     }, out_path)
+    torch.save({
+        'doclens': all_doclens,
+        'pids': pids,
+    }, metadata_path)
     print(f'Saved corpus embeddings: {D.shape} tokens, {len(pids)} docs -> {out_path}')
+    print(f'Saved metadata -> {metadata_path}')
     return D, all_doclens, pids
 
 
@@ -89,24 +95,53 @@ def encode_queries(cp, queries, out_path, batch_size=32):
     qids = list(queries.keys())
     texts = [queries[qid] for qid in qids]
 
-    all_Q, all_masks = [], []
+    all_Q, all_token_ids = [], []
     for i in tqdm(range(0, len(texts), batch_size), desc='Encoding queries'):
         batch = texts[i:i+batch_size]
         Q = cp.queryFromText(batch)
-        _, mask = cp.query_tokenizer.tensorize(batch)
+        input_ids, _ = cp.query_tokenizer.tensorize(batch)
         all_Q.append(Q.cpu())
-        all_masks.append(mask.cpu())
+        all_token_ids.append(input_ids.cpu())
 
     Q = torch.cat(all_Q, dim=0)
-    masks = torch.cat(all_masks, dim=0)
+    token_ids = torch.cat(all_token_ids, dim=0)
     torch.save({
         'Q': Q,
-        'masks': masks,
+        'token_ids': token_ids,
         'qids': qids,
         'texts': texts,
     }, out_path)
-    print(f'Saved query embeddings: {Q.shape}, masks: {masks.shape} -> {out_path}')
-    return Q, masks, qids, texts
+    print(f'Saved query embeddings: {Q.shape}, token_ids: {token_ids.shape} -> {out_path}')
+    return Q, token_ids, qids, texts
+
+
+def compute_corpus_idf(cp, corpus, query_token_ids, out_path, special_ids=None):
+    """
+    Compute corpus-level IDF for each unique query token ID.
+    special_ids get neutral IDF = 1.0.
+    """
+    if special_ids is None:
+        special_ids = {0, 1, 101, 102, 103}  # PAD, [Q]/[D], CLS, SEP, MASK
+
+    N = len(corpus)
+    df = {}
+    for text in tqdm(corpus.values(), desc='Computing corpus IDF'):
+        input_ids, _ = cp.doc_tokenizer.tensorize([text])
+        unique = set(input_ids[0].tolist()) - special_ids
+        for tid in unique:
+            df[tid] = df.get(tid, 0) + 1
+
+    unique_query_ids = query_token_ids.unique().tolist()
+    idf = {}
+    for tid in unique_query_ids:
+        if tid in special_ids:
+            idf[tid] = 1.0
+        else:
+            idf[tid] = math.log((N + 1) / (df.get(tid, 0) + 1))
+
+    torch.save(idf, out_path)
+    print(f'Saved IDF for {len(idf)} tokens -> {out_path}')
+    return idf
 
 
 def main():
@@ -127,10 +162,13 @@ def main():
     corpus, queries, qrels = load_scifact(args.data_root)
 
     doc_out = Path(args.output_dir) / 'doc_embeddings.pt'
+    metadata_out = Path(args.output_dir) / 'metadata.pt'
     query_out = Path(args.output_dir) / 'query_embeddings.pt'
+    idf_out = Path(args.output_dir) / 'idf.pt'
 
-    encode_corpus(cp, corpus, doc_out, batch_size=args.doc_batch_size)
-    encode_queries(cp, queries, query_out, batch_size=args.query_batch_size)
+    encode_corpus(cp, corpus, doc_out, metadata_out, batch_size=args.doc_batch_size)
+    _, token_ids, _, _ = encode_queries(cp, queries, query_out, batch_size=args.query_batch_size)
+    compute_corpus_idf(cp, corpus, token_ids, idf_out)
 
     qrels_out = Path(args.output_dir) / 'qrels_test.json'
     with open(qrels_out, 'w', encoding='utf-8') as f:

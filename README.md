@@ -13,7 +13,7 @@ Repo cũng bổ sung thêm lớp **CAD-MaxSim** (Context-Aware Diversified MaxSi
 | Checkpoint | `colbert-ir/colbertv2.0` | **giống** - không train lại |
 | Encoder / token embeddings | BERT + projection + L2 normalize | **giống**, gọi `Checkpoint.queryFromText` / `docFromText` |
 | Xây dựng centroid | sampling, FAISS, tự chọn số partitions, hỗ trợ distributed | `sklearn.KMeans` đơn giản, cố định `K=8192` |
-| Nén residual | `ResidualCodec`, học bucket cutoffs/weights, bit-pack 1/2-bit | tự viết bucket quantization + bit-pack tùy chọn |
+| Nén residual | `ResidualCodec`, học bucket cutoffs/weights, bit-pack 1/2-bit | quantile buckets + reconstruction weights + bit-pack tùy chọn |
 | Định dạng index | nhiều chunk, metadata, codec files, doclens | vài tensor/file Python đơn giản |
 | IVF | cấu trúc tối ưu | `centroid_id → list[passage_ids]` |
 | Sinh candidate | tối ưu + tensorized | top centroids → union passage ids |
@@ -63,7 +63,7 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install torch transformers scikit-learn datasets beir tqdm numpy colbert-ai
 ```
 
-> **Lưu ý:** `colbert-ai` chỉ dùng để gọi `Checkpoint.queryFromText()` / `docFromText()`, tránh phải tự implement tokenizer/BERT. Trên Apple Silicon, phần indexing chính thức (FAISS/CUDA) không được dùng.
+> **Lưu ý:** `colbert-ai` chỉ dùng để gọi `Checkpoint.queryFromText()` / `docFromText()`, tránh phải tự implement tokenizer/BERT. Trên Apple Silicon, phần indexing chính thức (FAISS/CUDA) không được dùng. Nếu gặp lỗi `all_tied_weights_keys` với `transformers 5.x`, hãy pin `transformers<5.0` (ví dụ `transformers==4.57.6`).
 
 ---
 
@@ -162,6 +162,8 @@ Nên dùng GPU runtime cho:
 
 ## 6. Kết quả trên SciFact (300 test queries)
 
+Kết quả được chạy trực tiếp từ commit hiện tại trên Mac M4 (`K=8192`, sample 100k, `ncells=4`, residual 2-bit, top-100 rerank).
+
 Baseline ColBERTv2 chính thức (`colbert-ir/colbertv2.0`):
 
 | Metric | Official |
@@ -170,30 +172,39 @@ Baseline ColBERTv2 chính thức (`colbert-ir/colbertv2.0`):
 | MRR@10 | 0.6120 |
 | Recall@100 | 0.8842 |
 
-Mini-ColBERTv2 (Mac M4, `K=8192`, sample 100k, `ncells=4`, residual 2-bit):
+Mini-ColBERTv2:
 
 | Biến thể | nDCG@10 | MRR@10 | Recall@100 |
 |---|---|---|---|
-| Original MaxSim | 0.6308 | 0.5984 | 0.8676 |
-| IDF (α=1, β=0) | 0.6166 | 0.5841 | 0.8659 |
-| Adaptive (α=0, β=1) | 0.4863 | 0.4620 | 0.7712 |
-| CAD (α=1, β=1) | 0.4693 | 0.4420 | 0.7746 |
+| Exact MaxSim (không nén) | 0.6464 | 0.6172 | 0.8942 |
+| Original MaxSim (2-bit IVF) | 0.6466 | 0.6147 | 0.8942 |
+| IDF (α=1, β=0) | **0.6731** | **0.6440** | 0.8942 |
+| Adaptive (α=0, β=1) | 0.6278 | 0.5961 | 0.8942 |
+| CAD (α=1, β=1) | 0.6552 | 0.6264 | 0.8942 |
 
-Original MaxSim chỉ thua official ~0.01–0.02; khoảng cách đến từ lượng tử hóa đơn giản (uniform buckets, chưa học cutoffs) và chỉ dùng một tầng candidate pruning.
+Original MaxSim đã sát với official (thậm chí hơn một chút về nDCG/Recall) và rất gần exact MaxSim không nén, chứng tỏ centroid + residual 2-bit + IVF được implement đúng. IDF weighting cho kết quả tốt nhất trong 4 ablations.
 
 ---
 
 ## 7. Kiểm tra độ đúng
 
-`validate.py` so sánh approximate search với exact MaxSim trên embedding gốc (chưa nén) cho vài query. Kết quả điển hình:
+`validate.py` so sánh approximate search với exact MaxSim trên embedding gốc (chưa nén) cho vài query. Kết quả điển hình sau khi sửa centroid normalize + quantile residual:
 
 ```
 Query: 0
 Top-10 overlap: 8/10
-Kendall tau on 2514 candidates: 0.7893
+Kendall tau on 2388 candidates: 0.8809
+
+Query: 2
+Top-10 overlap: 9/10
+Kendall tau on 1768 candidates: 0.9103
+
+Query: 4
+Top-10 overlap: 9/10
+Kendall tau on 2170 candidates: 0.9227
 ```
 
-Điều này xác nhận decompress + MaxSim implement đúng; phần khác biệt còn lại so với official chủ yếu là pipeline pruning đơn giản hơn.
+Điều này xác nhận decompress + MaxSim implement đúng; khoảng cách còn lại với exact MaxSim chủ yếu là do lượng tử hóa residual.
 
 ---
 

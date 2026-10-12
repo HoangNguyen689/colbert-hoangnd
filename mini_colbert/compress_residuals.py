@@ -9,7 +9,7 @@ from pathlib import Path
 
 import torch
 
-from mini_colbert.residual import compute_residuals, fit_residual_buckets, quantize_residuals, pack_bits
+from mini_colbert.residual import compute_residuals, fit_residual_buckets, quantize_residuals, dequantize_residuals, pack_bits
 
 
 def main():
@@ -30,18 +30,24 @@ def main():
     residuals = compute_residuals(D, centroids, codes)
 
     print('Fitting buckets...')
-    lo, step, levels = fit_residual_buckets(residuals, nbits=args.nbits)
+    cutoffs, bucket_weights = fit_residual_buckets(residuals, nbits=args.nbits)
 
     print('Quantizing residuals...')
-    idx = quantize_residuals(residuals, lo, step, levels).to(torch.uint8)
+    idx = quantize_residuals(residuals, cutoffs)
 
-    out = {'lo': lo, 'step': step, 'levels': levels}
+    # Sanity check: reconstruction error
+    recon = dequantize_residuals(idx, bucket_weights)
+    mse = (residuals - recon).pow(2).mean().item()
+    print(f'Residual reconstruction MSE: {mse:.6f}')
+
+    out = {'cutoffs': cutoffs, 'bucket_weights': bucket_weights}
     if args.pack:
         print('Packing bits...')
         packed = pack_bits(idx, nbits=args.nbits)
         out['packed'] = packed
     else:
         out['idx'] = idx
+
 
     out_path = Path(args.output_dir) / 'residuals.pt'
     out_path.parent.mkdir(parents=True, exist_ok=True)
