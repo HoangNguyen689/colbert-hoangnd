@@ -39,39 +39,42 @@ def dequantize_residuals(idx, bucket_weights):
 
 
 def pack_bits(idx, nbits=2):
-    N, dim = idx.shape
-    bits = idx.cpu().numpy().astype(np.uint8)
-    total_bits = N * dim * nbits
-    n_bytes = (total_bits + 7) // 8
-    packed = np.zeros(n_bytes, dtype=np.uint8)
+    """Vectorized bit-packing. Returns a 1-D uint8 numpy array.
 
-    bit_pos = 0
-    for i in range(N):
-        for j in range(dim):
-            val = bits[i, j]
-            byte_idx = bit_pos // 8
-            offset = bit_pos % 8
-            packed[byte_idx] |= (val << offset) & 0xFF
-            if offset + nbits > 8:
-                packed[byte_idx + 1] |= (val >> (8 - offset))
-            bit_pos += nbits
+    Supports any nbits that divides 8 (1, 2, 4, 8). For nbits=2 and dim=128,
+    each token consumes exactly 32 bytes.
+    """
+    idx = idx.cpu().numpy().astype(np.uint8)
+    N, dim = idx.shape
+    vals_per_byte = 8 // nbits
+    mask = (1 << nbits) - 1
+    pad = (vals_per_byte - dim % vals_per_byte) % vals_per_byte
+    if pad:
+        idx = np.pad(idx, ((0, 0), (0, pad)), constant_values=0)
+
+    flat = idx.reshape(-1, vals_per_byte)
+    shifts = (np.arange(vals_per_byte, dtype=np.uint8) * nbits)
+    packed = np.bitwise_or.reduce((flat & mask) << shifts, axis=1).astype(np.uint8)
     return packed
 
 
 def unpack_bits(packed, shape, nbits=2):
+    """Vectorized inverse of pack_bits."""
     N, dim = shape
-    total_bits = N * dim * nbits
-    idx = np.zeros((N, dim), dtype=np.uint8)
-
-    bit_pos = 0
+    vals_per_byte = 8 // nbits
     mask = (1 << nbits) - 1
-    for i in range(N):
-        for j in range(dim):
-            byte_idx = bit_pos // 8
-            offset = bit_pos % 8
-            val = (packed[byte_idx] >> offset) & mask
-            if offset + nbits > 8:
-                val |= (packed[byte_idx + 1] << (8 - offset)) & mask
-            idx[i, j] = val
-            bit_pos += nbits
+    dim_padded = (dim + vals_per_byte - 1) // vals_per_byte * vals_per_byte
+    n_bytes_expected = N * dim_padded // vals_per_byte
+
+    packed = np.asarray(packed, dtype=np.uint8).reshape(-1)
+    if packed.shape[0] < n_bytes_expected:
+        packed = np.pad(packed, (0, n_bytes_expected - packed.shape[0]), constant_values=0)
+    elif packed.shape[0] > n_bytes_expected:
+        packed = packed[:n_bytes_expected]
+
+    flat = packed.reshape(-1, 1)
+    shifts = (np.arange(vals_per_byte, dtype=np.uint8) * nbits)
+    idx = ((flat >> shifts[None, :]) & mask).reshape(N, dim_padded)
+    if pad := dim_padded - dim:
+        idx = idx[:, :-pad]
     return torch.from_numpy(idx)

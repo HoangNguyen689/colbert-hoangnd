@@ -1,6 +1,6 @@
 """
 cad/rerank.py
-CAD-MaxSim reranking from base candidate artifact.
+Candidate-Adaptive Discriminative MaxSim (CAD-MaxSim) reranking from base candidate artifact.
 """
 import argparse
 import json

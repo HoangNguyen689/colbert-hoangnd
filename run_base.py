@@ -25,7 +25,10 @@ def main():
     parser.add_argument('--K', type=int, default=8192)
     parser.add_argument('--n_samples', type=int, default=200000)
     parser.add_argument('--ncells', type=int, default=4)
-    parser.add_argument('--topk', type=int, default=100)
+    parser.add_argument('--candidate_topn', type=int, default=200,
+                        help='candidate pool size kept for rerankers')
+    parser.add_argument('--topk', type=int, default=100,
+                        help='final output ranking size')
     parser.add_argument('--device', default=None)
     parser.add_argument('--doc_batch_size', type=int, default=32)
     parser.add_argument('--query_batch_size', type=int, default=32)
@@ -46,7 +49,8 @@ def main():
         f'--output_dir {args.output_dir}')
     run(f'python -m base.search --index_dir {args.output_dir} --query_emb {out / "query_embeddings.pt"} '
         f'--output_candidates {out / "base_candidates.pt"} --output_ranking {out / "rankings_original.json"} '
-        f'--ncells {args.ncells} --topk {args.topk} --device {device}')
+        f'--ncells {args.ncells} --candidate_topn {args.candidate_topn} '
+        f'--output_topk {args.topk} --device {device}')
 
     print('\nBase pipeline complete.')
 

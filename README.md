@@ -2,7 +2,7 @@
 
 Phiên bản cài đặt tối giản của pipeline indexing và retrieval từ **ColBERTv2** (checkpoint `colbert-ir/colbertv2.0`), đánh giá trên tập SciFact. Repo giữ lại thuật toán cốt lõi - centroid quantization, nén residual 2-bit, IVF và MaxSim - nhưng lược bỏ phần lớn lớp engineering/optimization của repo chính thức để dễ hiểu, dễ sửa và dễ mở rộng.
 
-Repo cũng bổ sung thêm lớp **CAD-MaxSim** (Context-Aware Diversified MaxSim) như một bước re-rank đơn giản.
+Repo cũng bổ sung thêm lớp **CAD-MaxSim** (Candidate-Adaptive Discriminative MaxSim) như một bước re-rank đơn giản.
 
 ---
 
@@ -12,7 +12,7 @@ Repo cũng bổ sung thêm lớp **CAD-MaxSim** (Context-Aware Diversified MaxSi
 |---|---|---|
 | Checkpoint | `colbert-ir/colbertv2.0` | **giống** - không train lại |
 | Encoder / token embeddings | BERT + projection + L2 normalize | **giống**, gọi `Checkpoint.queryFromText` / `docFromText` |
-| Xây dựng centroid | sampling, FAISS, tự chọn số partitions, hỗ trợ distributed | `sklearn.KMeans` đơn giản, cố định `K=8192` |
+| Xây dựng centroid | sampling, FAISS, tự chọn số partitions, hỗ trợ distributed | `sklearn.MiniBatchKMeans` + GPU assignment, cố định `K=8192` |
 | Nén residual | `ResidualCodec`, học bucket cutoffs/weights, bit-pack 1/2-bit | quantile buckets + reconstruction weights + bit-pack tùy chọn |
 | Định dạng index | nhiều chunk, metadata, codec files, doclens | vài tensor/file Python đơn giản |
 | IVF | cấu trúc tối ưu | `centroid_id → list[passage_ids]` |
@@ -90,6 +90,7 @@ python run_base.py \
   --K 8192 \
   --n_samples 100000 \
   --ncells 4 \
+  --candidate_topn 200 \
   --topk 100 \
   --device cpu \
   --doc_batch_size 32 \
@@ -129,7 +130,7 @@ In bảng so sánh Official / Mini Base / IDF / Adaptive / CAD.
 Mở [`Mini_ColBERTv2_SciFact.ipynb`](Mini_ColBERTv2_SciFact.ipynb) trong Colab với runtime GPU (T4 là đủ). Notebook tự clone repo, cài dependency, rồi chạy 3 lệnh:
 
 ```bash
-python run_base.py --output_dir outputs --K 8192 --n_samples 200000 --ncells 4 --topk 100 --device cuda
+python run_base.py --output_dir outputs --K 8192 --n_samples 200000 --ncells 4 --candidate_topn 200 --topk 100 --device cuda
 python run_cad.py --output_dir outputs --topk 100
 python run_evaluate.py --output_dir outputs
 ```
@@ -140,7 +141,7 @@ Nên dùng GPU runtime cho encode full SciFact và search; CAD và evaluation ch
 
 ## 6. Kết quả trên SciFact (300 test queries)
 
-Kết quả được chạy trực tiếp từ commit hiện tại trên Mac M4 (`K=8192`, sample 100k, `ncells=4`, residual 2-bit, top-100 rerank).
+Kết quả dưới đây là từ lần chạy trước trên Mac M4 (`K=8192`, sample 100k, `ncells=4`, residual 2-bit, top-100 rerank). Sau khi tách `candidate_topn=200` / `output_topk=100`, kết quả Recall@100 có thể khác nhau giữa các biến thể. Bảng cuối cùng từ chạy Colab sẽ được cập nhật sau.
 
 Baseline ColBERTv2 chính thức (`colbert-ir/colbertv2.0`):
 
@@ -154,44 +155,21 @@ Mini-ColBERTv2:
 
 | Biến thể | nDCG@10 | MRR@10 | Recall@100 |
 |---|---|---|---|
-| Exact MaxSim (không nén) | 0.6464 | 0.6172 | 0.8942 |
 | Original MaxSim (2-bit IVF) | 0.6466 | 0.6147 | 0.8942 |
 | IDF (α=1, β=0) | **0.6731** | **0.6440** | 0.8942 |
 | Adaptive (α=0, β=1) | 0.6278 | 0.5961 | 0.8942 |
 | CAD (α=1, β=1) | 0.6552 | 0.6264 | 0.8942 |
 
-Original MaxSim đã sát với official (thậm chí hơn một chút về nDCG/Recall) và rất gần exact MaxSim không nén, chứng tỏ centroid + residual 2-bit + IVF được implement đúng. IDF weighting cho kết quả tốt nhất trong 4 ablations.
+Original MaxSim đã sát với official, chứng tỏ centroid + residual 2-bit + IVF được implement đúng. IDF weighting cho kết quả tốt nhất trong 4 ablations.
 
 ---
 
-## 7. Kiểm tra độ đúng
-
-`validate.py` so sánh approximate search với exact MaxSim trên embedding gốc (chưa nén) cho vài query. Kết quả điển hình sau khi sửa centroid normalize + quantile residual:
-
-```
-Query: 0
-Top-10 overlap: 8/10
-Kendall tau on 2388 candidates: 0.8809
-
-Query: 2
-Top-10 overlap: 9/10
-Kendall tau on 1768 candidates: 0.9103
-
-Query: 4
-Top-10 overlap: 9/10
-Kendall tau on 2170 candidates: 0.9227
-```
-
-Điều này xác nhận decompress + MaxSim implement đúng; khoảng cách còn lại với exact MaxSim chủ yếu là do lượng tử hóa residual.
-
----
-
-## 8. Dữ liệu
+## 7. Dữ liệu
 
 SciFact được tải tự động bởi `encode.py` qua BEIR và lưu trong `data/`. Vì corpus, embeddings và index khá nặng, chúng bị loại khỏi git (xem `.gitignore`). Ngườii dùng cần tự chạy pipeline để sinh ra.
 
 ---
 
-## 9. License
+## 8. License
 
 Code trong repo này cung cấp cho mục đích học tập - nghiên cứu. Checkpoint ColBERT từ [colbert-ir/colbertv2.0](https://huggingface.co/colbert-ir/colbertv2.0) và tập SciFact từ BEIR.

@@ -1,6 +1,6 @@
 """
 cad/weighting.py
-Compute CAD weights from corpus IDF and candidate-set StdDev.
+Compute Candidate-Adaptive Discriminative MaxSim (CAD-MaxSim) weights from corpus IDF and candidate-set StdDev.
 w_i = IDF_i^alpha * (StdDev_i + eps)^beta
 Then normalize so mean weight = 1.
 """

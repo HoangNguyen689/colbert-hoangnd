@@ -19,7 +19,9 @@ def main():
     parser.add_argument('--codes_path', default='outputs/codes.pt')
     parser.add_argument('--output_dir', default='outputs')
     parser.add_argument('--nbits', type=int, default=2)
-    parser.add_argument('--pack', action='store_true')
+    parser.add_argument('--no-pack', dest='pack', action='store_false',
+                        help='keep residuals as uint8 tensor instead of bit-packing')
+    parser.set_defaults(pack=True)
     args = parser.parse_args()
 
     D = torch.load(args.emb_path, map_location='cpu')['D']
@@ -42,7 +44,7 @@ def main():
     out = {'cutoffs': cutoffs, 'bucket_weights': bucket_weights}
     if args.pack:
         print('Packing bits...')
-        out['packed'] = pack_bits(idx, nbits=args.nbits)
+        out['packed'] = torch.from_numpy(pack_bits(idx, nbits=args.nbits))
     else:
         out['idx'] = idx
 

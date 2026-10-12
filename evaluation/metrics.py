@@ -15,10 +15,8 @@ def dcg(scores, k):
 
 def ndcg_at_k(rankings, qrels, k=10):
     ndcgs = []
-    for qid, ranked_pids in rankings.items():
-        if qid not in qrels:
-            continue
-        rel = qrels[qid]
+    for qid, rel in qrels.items():
+        ranked_pids = rankings.get(qid, [])
         gains = [rel.get(pid, 0) for pid in ranked_pids]
         ideal = sorted(rel.values(), reverse=True)
         ideal_dcg = dcg(ideal, k)
@@ -29,10 +27,8 @@ def ndcg_at_k(rankings, qrels, k=10):
 
 def mrr_at_k(rankings, qrels, k=10):
     rr = []
-    for qid, ranked_pids in rankings.items():
-        if qid not in qrels:
-            continue
-        rel = qrels[qid]
+    for qid, rel in qrels.items():
+        ranked_pids = rankings.get(qid, [])
         for i, pid in enumerate(ranked_pids[:k]):
             if rel.get(pid, 0) > 0:
                 rr.append(1.0 / (i + 1))
@@ -44,14 +40,13 @@ def mrr_at_k(rankings, qrels, k=10):
 
 def recall_at_k(rankings, qrels, k=100):
     recalls = []
-    for qid, ranked_pids in rankings.items():
-        if qid not in qrels:
+    for qid, rel in qrels.items():
+        rel_set = set([pid for pid, score in rel.items() if score > 0])
+        if len(rel_set) == 0:
             continue
-        rel = set([pid for pid, score in qrels[qid].items() if score > 0])
-        if len(rel) == 0:
-            continue
+        ranked_pids = rankings.get(qid, [])
         retrieved = set(ranked_pids[:k])
-        recalls.append(len(rel & retrieved) / len(rel))
+        recalls.append(len(rel_set & retrieved) / len(rel_set))
     return float(np.mean(recalls))
 
 

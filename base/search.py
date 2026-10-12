@@ -67,7 +67,7 @@ class ColBERTSearcher:
                 cand.update(self.ivf[cid])
         return sorted(list(cand))
 
-    def search_query(self, Q, ncells=4, topk=100):
+    def search_query(self, Q, ncells=4, candidate_topn=200, output_topk=100):
         Q = torch.nn.functional.normalize(Q, p=2, dim=-1)
         candidates = self.get_candidates(Q, ncells=ncells)
 
@@ -88,18 +88,21 @@ class ColBERTSearcher:
 
         token_scores = torch.stack(token_scores, dim=0)
         scores = torch.tensor(scores, device=self.device)
-        sorted_idx = scores.argsort(descending=True)[:topk]
+        # Keep a larger candidate pool for rerankers, then return top-k.
+        sorted_idx = scores.argsort(descending=True)[:candidate_topn]
 
         return {
-            'pids': [self.pids[candidates[i]] for i in sorted_idx.tolist()],
-            'scores': scores[sorted_idx].tolist(),
+            'pids': [self.pids[candidates[i]] for i in sorted_idx[:output_topk].tolist()],
+            'scores': scores[sorted_idx[:output_topk]].tolist(),
             'token_scores': token_scores[sorted_idx].cpu(),
         }
 
-    def batch_search(self, Qs, qids, ncells=4, topk=100):
+    def batch_search(self, Qs, qids, ncells=4, candidate_topn=200, output_topk=100):
         results = {}
         for qid, Q in zip(qids, Qs):
-            results[qid] = self.search_query(Q, ncells=ncells, topk=topk)
+            results[qid] = self.search_query(
+                Q, ncells=ncells, candidate_topn=candidate_topn, output_topk=output_topk
+            )
         return results
 
 
@@ -110,7 +113,10 @@ def main():
     parser.add_argument('--output_candidates', default='outputs/base_candidates.pt')
     parser.add_argument('--output_ranking', default='outputs/rankings_original.json')
     parser.add_argument('--ncells', type=int, default=4)
-    parser.add_argument('--topk', type=int, default=100)
+    parser.add_argument('--candidate_topn', type=int, default=200,
+                        help='number of candidates to keep for rerankers')
+    parser.add_argument('--output_topk', type=int, default=100,
+                        help='number of results to output in the final ranking')
     parser.add_argument('--device', default=None)
     args = parser.parse_args()
 
@@ -122,7 +128,10 @@ def main():
     Qs = qdata['Q'].to(device)
     qids = qdata['qids']
 
-    results = searcher.batch_search(Qs, qids, ncells=args.ncells, topk=args.topk)
+    results = searcher.batch_search(
+        Qs, qids, ncells=args.ncells,
+        candidate_topn=args.candidate_topn, output_topk=args.output_topk
+    )
 
     torch.save(results, args.output_candidates)
     print(f'Saved base candidates -> {args.output_candidates}')

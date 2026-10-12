@@ -1,6 +1,6 @@
 """
 run_cad.py
-Run CAD-MaxSim ablations on top of base candidates.
+Run Candidate-Adaptive Discriminative MaxSim (CAD-MaxSim) ablations on top of base candidates.
 Requires:
   outputs/base_candidates.pt
   outputs/query_embeddings.pt
