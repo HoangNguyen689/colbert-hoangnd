@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Generated data and outputs (large files, users regenerate locally)
+data/
+outputs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Temporary test scripts (kept locally only)
+test_checkpoint.py
+test_smoke.py
+add_query_masks.py
+run_exact.py
