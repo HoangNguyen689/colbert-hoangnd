@@ -1,6 +1,6 @@
 # Mini-ColBERTv2
 
-Phiên bản cài đặt tối giản của pipeline indexing và retrieval từ **ColBERTv2** (checkpoint `colbert-ir/colbertv2.0`), đánh giá trên tập SciFact. Repo giữ lại thuật toán cốt lõi - centroid quantization, nén residual 2-bit, IVF và MaxSim - nhưng lược bỏ phần lớn lớp engineering/optimization của repo chính thức để dễ hiểu, dễ sửa và dễ mở rộng.
+Phiên bản cài đặt tối giản của pipeline indexing và retrieval từ **ColBERTv2** (checkpoint `colbert-ir/colbertv2.0`), đánh giá trên nhiều tập BEIR (SciFact, NFCorpus, SCIDOCS, FiQA, ArguAna). Repo giữ lại thuật toán cốt lõi - centroid quantization, nén residual 2-bit, IVF và MaxSim - nhưng lược bỏ phần lớn lớp engineering/optimization của repo chính thức để dễ hiểu, dễ sửa và dễ mở rộng.
 
 Repo cũng bổ sung thêm lớp **CAD-MaxSim** (Candidate-Adaptive Discriminative MaxSim) như một bước re-rank đơn giản.
 
@@ -36,7 +36,7 @@ Tóm lại:
 ```
 .
 ├── base/                      # Mini-ColBERTv2 thuần
-│   ├── datasets.py            # danh sách BEIR datasets + alias (dependency-free)
+│   ├── datasets.py            # danh sách BEIR datasets (dependency-free)
 │   ├── encode.py              # checkpoint → Q/D embeddings
 │   ├── index.py               # k-means → centroids + codes
 │   ├── compress_residuals.py  # lượng tử hóa residual 2-bit
@@ -48,7 +48,7 @@ Tóm lại:
 │   ├── idf.py                 # corpus-level IDF
 │   ├── weighting.py           # CAD weight formula
 │   ├── rerank.py              # rerank từ base candidates
-│   └── tune_cad.py            # grid-search alpha/beta
+│   └── tune_cad.py            # grid-search alpha/beta (hiện cố định α=1.0)
 ├── evaluation/                # chỉ đọc ranking → metrics
 │   ├── metrics.py             # nDCG@10, MRR@10, Recall@100
 │   └── compare_official.py    # so sánh với baseline official
@@ -176,9 +176,64 @@ Sau đó `run_evaluate.py` tự hiện hàng `Official ColBERTv2` cho từng dat
 
 ---
 
-## 7. Kết quả trên SciFact (300 test queries)
+## 7. Kết quả đo trên Colab T4
 
-Chạy trên Google Colab T4 với checkpoint `colbert-ir/colbertv2.0`, `K=8192`, `n_samples=200000`, `ncells=4`, `candidate_topn=200`, `output_topk=100`, residual 2-bit.
+Chạy trên Google Colab (GPU T4) với checkpoint `colbert-ir/colbertv2.0`, `K=8192`, `n_samples=200000`, `ncells=4`, `candidate_topn=200`, `output_topk=100`, residual 2-bit, `query_maxlen=32`, `doc_maxlen=180`.
+
+Hàng `Official ColBERTv2` được đo bằng `baselines/official/` với **cùng settings** (không lấy số paper dùng `doc_maxlen=300`).
+
+Số query test: SciFact 300, NFCorpus 323, SCIDOCS 1.000, FiQA 648, ArguAna 1.406. `trec-covid` **không chạy**: 171k docs, `doc_embeddings.pt` ~14 GB → OOM trên T4 12.7 GB RAM.
+
+### 7.1 nDCG@10
+
+| Dataset | Official | Mini Base | IDF (α=1, β=0) | Adaptive (α=0, β=1) | CAD (α=1, β=1) |
+|---|---|---|---|---|---|
+| SciFact | 0.6438 | 0.6411 | **0.6656** | 0.6210 | 0.6495 |
+| NFCorpus | 0.3299 | **0.3289** | 0.3285 | 0.3224 | 0.3250 |
+| SCIDOCS | 0.1549 | 0.1563 | **0.1619** | 0.1439 | 0.1551 |
+| FiQA | 0.3410 | 0.3401 | **0.3414** | 0.3209 | 0.3214 |
+| ArguAna | 0.3366 | 0.3331 | 0.3346 | 0.3315 | **0.3352** |
+
+### 7.2 MRR@10
+
+| Dataset | Official | Mini Base | IDF | Adaptive | CAD |
+|---|---|---|---|---|---|
+| SciFact | 0.6120 | 0.6103 | **0.6367** | 0.5903 | 0.6204 |
+| NFCorpus | 0.5491 | **0.5487** | 0.5459 | 0.5342 | 0.5413 |
+| SCIDOCS | 0.2744 | 0.2791 | **0.2900** | 0.2640 | 0.2810 |
+| FiQA | 0.4161 | 0.4152 | **0.4167** | 0.3892 | 0.3959 |
+| ArguAna | 0.2245 | 0.2211 | **0.2255** | 0.2222 | 0.2248 |
+
+### 7.3 Recall@100
+
+| Dataset | Official | Mini Base | IDF | Adaptive | CAD |
+|---|---|---|---|---|---|
+| SciFact | 0.8842 | 0.8916 | **0.8993** | 0.8953 | 0.8987 |
+| NFCorpus | **0.2738** | 0.2722 | 0.2693 | 0.2704 | 0.2675 |
+| SCIDOCS | 0.3555 | 0.3590 | **0.3614** | 0.3473 | 0.3555 |
+| FiQA | 0.6249 | 0.6312 | **0.6346** | 0.6218 | 0.6226 |
+| ArguAna | 0.9201 | 0.9090 | 0.9111 | 0.9189 | **0.9203** |
+
+### 7.4 Thay đổi nDCG@10 so với Mini Base (%)
+
+| Dataset | IDF | Adaptive | CAD |
+|---|---:|---:|---:|
+| SciFact | **+3.8** | −3.1 | +1.3 |
+| NFCorpus | −0.1 | −2.0 | −1.2 |
+| SCIDOCS | **+3.6** | −7.9 | −0.8 |
+| FiQA | +0.4 | −5.6 | −5.5 |
+| ArguAna | +0.5 | −0.5 | +0.6 |
+
+### 7.5 Nhận xét
+
+- **Mini Base bám sát Official trên cả 5 tập** (lệch ≤ 1%) → centroid quantization + residual 2-bit + IVF + MaxSim implement đúng, và so sánh là công bằng (cùng settings).
+- **IDF là thành phần duy nhất đóng góp ổn định**: cải thiện rõ ở SciFact (+3.8%), SCIDOCS (+3.6%); đi ngang ở NFCorpus/FiQA/ArguAna. IDF vượt cả Official ở SciFact, SCIDOCS và FiQA.
+- **Adaptive (chỉ std-dev) làm giảm chất lượng ở cả 5 tập**, nặng nhất SCIDOCS (−7.9%) và FiQA (−5.6%). Giả thuyết: chỉ có 200 candidate/query nên std-dev trên 200 giá trị quá nhiễu để ước lượng độ quan trọng của token.
+- **CAD (IDF × std-dev) không vượt IDF ở bất kỳ tập nào.** Nó chỉ nhỉnh hơn Mini Base ở SciFact (+1.3%) và ArguAna (+0.6%, trong khoảng nhiễu); các tập còn lại đều thấp hơn Base.
+- Ở FiQA, CAD (0.3214) bị kéo xuống gần bằng Adaptive (0.3209) và cách xa IDF (0.3414) → thành phần β đang **phá** tín hiệu IDF, chứ không bổ sung.
+- → Trước khi kết luận về CAD cần: (1) **grid-search (α, β)** thay vì cố định α=β=1, và (2) thử **tăng `candidate_topn`** (200 → 500/1000) xem trần candidate hiện tại có đang chặn lợi ích.
+
+### 7.6 SciFact (chi tiết, 300 test queries)
 
 | Biến thể | nDCG@10 | MRR@10 | Recall@100 |
 |---|---|---|---|
@@ -187,13 +242,6 @@ Chạy trên Google Colab T4 với checkpoint `colbert-ir/colbertv2.0`, `K=8192`
 | IDF (α=1, β=0) | **0.6656** | **0.6367** | 0.8993 |
 | Adaptive (α=0, β=1) | 0.6210 | 0.5903 | 0.8953 |
 | CAD (α=1, β=1) | 0.6495 | 0.6204 | 0.8987 |
-
-Nhận xét:
-
-- Mini Base gần sát Official ColBERTv2 → centroid + residual 2-bit + IVF được implement đúng.
-- IDF đơn thuần cho kết quả tốt nhất (+2.45 nDCG@10, +2.64 MRR@10 so với Mini Base).
-- Adaptive (std-dev theo candidate pool) làm giảm chất lượng, có thể vì 200 candidates quá ít để ước lượng độ quan trọng token ổn định.
-- CAD kết hợp IDF + Adaptive thua IDF đơn thuần, cho thấy thành phần β cần được tinh chỉnh (grid-search) hoặc thay thế bằng độ đo khác.
 
 ---
 
