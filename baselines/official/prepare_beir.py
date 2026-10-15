@@ -21,12 +21,6 @@ import zipfile
 
 BEIR_URL = "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{}.zip"
 
-# logical name -> (archive_name, path_inside_archive)
-ALIASES = {
-    "cqadupstack-english": ("cqadupstack", "cqadupstack/english"),
-    "cqadupstack-programmers": ("cqadupstack", "cqadupstack/programmers"),
-}
-
 
 def read_jsonl(path):
     with open(path, encoding="utf-8") as f:
@@ -45,7 +39,7 @@ def main():
     ap.add_argument("--out", default="data")
     args = ap.parse_args()
 
-    archive, subdir = ALIASES.get(args.dataset, (args.dataset, args.dataset))
+    archive = subdir = args.dataset
     out = Path(args.out)
     raw = out / "raw"
     cooked = out / f"{args.dataset}_colbert"

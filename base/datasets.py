@@ -11,20 +11,6 @@ BEIR_DATASETS = [
     'fiqa',
     'trec-covid',
     'arguana',
-    'cqadupstack-english',
-    'cqadupstack-programmers',
 ]
 
 BEIR_URL = 'https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{}.zip'
-
-# Some BEIR corpora ship as a single archive containing several sub-corpora
-# (e.g. cqadupstack). Map logical name -> (archive_name, path_inside_archive).
-DATASET_ALIASES = {
-    'cqadupstack-english': ('cqadupstack', 'cqadupstack/english'),
-    'cqadupstack-programmers': ('cqadupstack', 'cqadupstack/programmers'),
-}
-
-
-def dataset_layout(dataset):
-    """Return (archive_name, relative_path) for a logical dataset name."""
-    return DATASET_ALIASES.get(dataset, (dataset, dataset))

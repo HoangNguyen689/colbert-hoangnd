@@ -59,7 +59,5 @@ The whole loop is wrapped in [`Official_ColBERTv2_MultiBEIR.ipynb`](../../Offici
 ## Notes
 
 - The official repo needs a GPU for indexing; use a Colab T4.
-- `cqadupstack-*` datasets ship as one archive with several sub-corpora; the
-  alias map in `prepare_beir.py` handles that.
 - These scripts are intentionally standalone (no imports from `base/`) so they
   can be copied directly into the official ColBERT repo directory.

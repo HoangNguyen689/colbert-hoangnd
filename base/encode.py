@@ -16,7 +16,7 @@ from tqdm import tqdm
 from colbert.modeling.checkpoint import Checkpoint
 from colbert.infra.config import ColBERTConfig
 
-from base.datasets import BEIR_DATASETS, BEIR_URL, dataset_layout
+from base.datasets import BEIR_DATASETS, BEIR_URL
 
 
 def load_beir(data_root: str, dataset: str = 'scifact'):
@@ -24,15 +24,14 @@ def load_beir(data_root: str, dataset: str = 'scifact'):
     if dataset not in BEIR_DATASETS:
         raise ValueError(f'Unsupported dataset: {dataset}. Choose from {BEIR_DATASETS}')
     data_root = Path(data_root)
-    archive, rel_path = dataset_layout(dataset)
-    corpus_file = data_root / rel_path / 'corpus.jsonl'
-    queries_file = data_root / rel_path / 'queries.jsonl'
-    qrels_file = data_root / rel_path / 'qrels' / 'test.tsv'
+    corpus_file = data_root / dataset / 'corpus.jsonl'
+    queries_file = data_root / dataset / 'queries.jsonl'
+    qrels_file = data_root / dataset / 'qrels' / 'test.tsv'
 
     if not corpus_file.exists() or not queries_file.exists():
         print(f'{dataset} not found, downloading via BEIR...')
         from beir import util
-        util.download_and_unzip(BEIR_URL.format(archive), str(data_root))
+        util.download_and_unzip(BEIR_URL.format(dataset), str(data_root))
 
     corpus = {}
     with open(corpus_file, 'r', encoding='utf-8') as f:

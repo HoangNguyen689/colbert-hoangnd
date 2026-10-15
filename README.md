@@ -107,7 +107,7 @@ python run_base.py \
   --query_batch_size 32
 ```
 
-`--dataset` hỗ trợ các tập BEIR: `scifact` (mặc định), `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`, `arguana`, `cqadupstack-english`, `cqadupstack-programmers`. Dataset được tải tự động về `data/<dataset>/` khi chạy lần đầu (riêng `cqadupstack-*` nằm trong `data/cqadupstack/`).
+`--dataset` hỗ trợ các tập BEIR: `scifact` (mặc định), `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`, `arguana`. Dataset được tải tự động về `data/<dataset>/` khi chạy lần đầu.
 
 Lệnh này tải SciFact qua BEIR, encode, build index, nén residual, build IVF, search, và sinh ra:
 - `outputs/base_candidates.pt` — candidate set + per-token MaxSim `c_i(d)`
@@ -197,7 +197,7 @@ Nhận xét:
 
 ## 8. Dữ liệu
 
-SciFact (và các tập BEIR khác như `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`, `arguana`, `cqadupstack-*`) được tải tự động bởi `encode.py` qua BEIR và lưu trong `data/`. Vì corpus, embeddings và index khá nặng, chúng bị loại khỏi git (xem `.gitignore`). Người dùng cần tự chạy pipeline để sinh ra.
+SciFact (và các tập BEIR khác như `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`, `arguana`) được tải tự động bởi `encode.py` qua BEIR và lưu trong `data/`. Vì corpus, embeddings và index khá nặng, chúng bị loại khỏi git (xem `.gitignore`). Người dùng cần tự chạy pipeline để sinh ra.
 
 Để chạy nhiều dataset trên Colab, dùng notebook [`Mini_ColBERTv2_MultiBEIR.ipynb`](Mini_ColBERTv2_MultiBEIR.ipynb); để có baseline official, dùng thêm [`Official_ColBERTv2_MultiBEIR.ipynb`](Official_ColBERTv2_MultiBEIR.ipynb).
 
