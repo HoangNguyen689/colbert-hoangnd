@@ -36,6 +36,7 @@ Tóm lại:
 ```
 .
 ├── base/                      # Mini-ColBERTv2 thuần
+│   ├── datasets.py            # danh sách BEIR datasets + alias (dependency-free)
 │   ├── encode.py              # checkpoint → Q/D embeddings
 │   ├── index.py               # k-means → centroids + codes
 │   ├── compress_residuals.py  # lượng tử hóa residual 2-bit
@@ -46,14 +47,22 @@ Tóm lại:
 ├── cad/                       # CAD-MaxSim extension
 │   ├── idf.py                 # corpus-level IDF
 │   ├── weighting.py           # CAD weight formula
-│   └── rerank.py              # rerank từ base candidates
+│   ├── rerank.py              # rerank từ base candidates
+│   └── tune_cad.py            # grid-search alpha/beta
 ├── evaluation/                # chỉ đọc ranking → metrics
 │   ├── metrics.py             # nDCG@10, MRR@10, Recall@100
 │   └── compare_official.py    # so sánh với baseline official
+├── baselines/
+│   └── official/              # chạy ColBERTv2 gốc cùng settings để làm baseline
+│       ├── prepare_beir.py
+│       ├── run_official_colbertv2.py
+│       └── evaluate_official.py
 ├── run_base.py                # pipeline BASE end-to-end
 ├── run_cad.py                 # pipeline CAD end-to-end
-├── run_evaluate.py            # in bảng metrics
-├── Mini_ColBERTv2_SciFact.ipynb  # notebook chạy trên Colab
+├── run_evaluate.py            # in bảng metrics (kèm hàng Official nếu có)
+├── Mini_ColBERTv2_SciFact.ipynb      # notebook chạy 1 dataset trên Colab
+├── Mini_ColBERTv2_MultiBEIR.ipynb    # notebook chạy nhiều dataset (base+cad+eval)
+├── Official_ColBERTv2_MultiBEIR.ipynb # notebook chạy official baseline
 ├── README.md
 └── .gitignore
 ```
@@ -98,7 +107,7 @@ python run_base.py \
   --query_batch_size 32
 ```
 
-`--dataset` hỗ trợ các tập BEIR: `scifact` (mặc định), `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`. Dataset được tải tự động về `data/<dataset>/` khi chạy lần đầu.
+`--dataset` hỗ trợ các tập BEIR: `scifact` (mặc định), `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`, `arguana`, `cqadupstack-english`, `cqadupstack-programmers`. Dataset được tải tự động về `data/<dataset>/` khi chạy lần đầu (riêng `cqadupstack-*` nằm trong `data/cqadupstack/`).
 
 Lệnh này tải SciFact qua BEIR, encode, build index, nén residual, build IVF, search, và sinh ra:
 - `outputs/base_candidates.pt` — candidate set + per-token MaxSim `c_i(d)`
@@ -127,25 +136,37 @@ CAD **không chạy retrieval lại**, chỉ đọc `base_candidates.pt`, tính 
 python run_evaluate.py --output_dir outputs --qrels outputs/qrels_test.json
 ```
 
-In bảng so sánh Official / Mini Base / IDF / Adaptive / CAD.
+In bảng so sánh Official / Mini Base / IDF / Adaptive / CAD. Hàng `Official` chỉ hiện khi có baseline cho dataset (đọc từ `outputs/<dataset>/official_baseline.json`, hoặc bảng dựng sẵn cho SciFact).
 
 ---
 
 ## 5. Chạy trên Google Colab
 
-Mở [`Mini_ColBERTv2_SciFact.ipynb`](Mini_ColBERTv2_SciFact.ipynb) trong Colab với runtime GPU (T4 là đủ). Notebook tự clone repo, cài dependency, rồi chạy 3 lệnh:
+Ba notebook (runtime GPU T4):
 
-```bash
-python run_base.py --output_dir outputs --K 8192 --n_samples 200000 --ncells 4 --candidate_topn 200 --topk 100 --device cuda
-python run_cad.py --output_dir outputs --topk 100
-python run_evaluate.py --output_dir outputs
-```
+1. [`Mini_ColBERTv2_SciFact.ipynb`](Mini_ColBERTv2_SciFact.ipynb) — chạy 1 dataset (SciFact).
+2. [`Mini_ColBERTv2_MultiBEIR.ipynb`](Mini_ColBERTv2_MultiBEIR.ipynb) — chạy nhiều dataset (`nfcorpus`, `scidocs`, `fiqa`, `arguana`), mỗi dataset vào `outputs/<dataset>/`.
+3. [`Official_ColBERTv2_MultiBEIR.ipynb`](Official_ColBERTv2_MultiBEIR.ipynb) — chạy ColBERTv2 gốc cùng settings để sinh `official_baseline.json`.
 
-Nên dùng GPU runtime cho encode full SciFact và search; CAD và evaluation chạy CPU cũng nhanh.
+Nên dùng GPU runtime cho encode và search; CAD và evaluation chạy CPU cũng nhanh.
 
 ---
 
-## 6. Kết quả trên SciFact (300 test queries)
+## 6. So sánh với Official ColBERTv2
+
+Để so sánh công bằng, official ColBERTv2 phải chạy **cùng settings** với bản mini: `query_maxlen=32`, `doc_maxlen=180`, `nbits=2`, top-100. Số trong paper dùng `doc_maxlen=300` nên không so trực tiếp được.
+
+Chạy `Official_ColBERTv2_MultiBEIR.ipynb` (Colab GPU); notebook dùng `baselines/official/` để:
+
+1. tải dataset và convert sang ColBERT TSV;
+2. build index residual (`nbits=2`) + retrieve top-100;
+3. tính metrics và ghi `outputs/<dataset>/official_baseline.json`.
+
+Sau đó `run_evaluate.py` tự hiện hàng `Official ColBERTv2` cho từng dataset.
+
+---
+
+## 7. Kết quả trên SciFact (300 test queries)
 
 Chạy trên Google Colab T4 với checkpoint `colbert-ir/colbertv2.0`, `K=8192`, `n_samples=200000`, `ncells=4`, `candidate_topn=200`, `output_topk=100`, residual 2-bit.
 
@@ -166,14 +187,14 @@ Nhận xét:
 
 ---
 
-## 7. Dữ liệu
+## 8. Dữ liệu
 
-SciFact (và các tập BEIR khác như `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`) được tải tự động bởi `encode.py` qua BEIR và lưu trong `data/`. Vì corpus, embeddings và index khá nặng, chúng bị loại khỏi git (xem `.gitignore`). Người dùng cần tự chạy pipeline để sinh ra.
+SciFact (và các tập BEIR khác như `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`, `arguana`, `cqadupstack-*`) được tải tự động bởi `encode.py` qua BEIR và lưu trong `data/`. Vì corpus, embeddings và index khá nặng, chúng bị loại khỏi git (xem `.gitignore`). Người dùng cần tự chạy pipeline để sinh ra.
 
-Để chạy nhiều dataset trên Colab, dùng notebook [`Mini_ColBERTv2_MultiBEIR.ipynb`](Mini_ColBERTv2_MultiBEIR.ipynb).
+Để chạy nhiều dataset trên Colab, dùng notebook [`Mini_ColBERTv2_MultiBEIR.ipynb`](Mini_ColBERTv2_MultiBEIR.ipynb); để có baseline official, dùng thêm [`Official_ColBERTv2_MultiBEIR.ipynb`](Official_ColBERTv2_MultiBEIR.ipynb).
 
 ---
 
-## 8. License
+## 9. License
 
 Code trong repo này cung cấp cho mục đích học tập - nghiên cứu. Checkpoint ColBERT từ [colbert-ir/colbertv2.0](https://huggingface.co/colbert-ir/colbertv2.0) và tập SciFact từ BEIR.

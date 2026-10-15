@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from base.datasets import BEIR_DATASETS
+
 
 def run(cmd):
     print(f'\n>>> {cmd}')
@@ -24,8 +26,7 @@ def run(cmd):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='data')
-    parser.add_argument('--dataset', default='scifact',
-                        choices=['scifact', 'nfcorpus', 'scidocs', 'fiqa', 'trec-covid'])
+    parser.add_argument('--dataset', default='scifact', choices=BEIR_DATASETS)
     parser.add_argument('--output_dir', default='outputs')
     parser.add_argument('--topk', type=int, default=100)
     parser.add_argument('--tune', action='store_true', help='run hyperparameter grid search tuning')

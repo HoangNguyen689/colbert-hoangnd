@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from base.datasets import BEIR_DATASETS
+
 
 def run(cmd):
     print(f'\n>>> {cmd}')
@@ -21,8 +23,7 @@ def run(cmd):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='data')
-    parser.add_argument('--dataset', default='scifact',
-                        choices=['scifact', 'nfcorpus', 'scidocs', 'fiqa', 'trec-covid'])
+    parser.add_argument('--dataset', default='scifact', choices=BEIR_DATASETS)
     parser.add_argument('--output_dir', default='outputs')
     parser.add_argument('--K', type=int, default=8192)
     parser.add_argument('--n_samples', type=int, default=200000)
