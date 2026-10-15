@@ -23,13 +23,16 @@ def rerank_query(token_scores, idf_vals, alpha=0.0, beta=0.0):
 
 
 def rerank_all(base_candidates, idf_dict, query_token_ids, qids, alpha=0.0, beta=0.0):
+    # qids.index(qid) inside the loop is O(n) -> O(n^2) overall, which crawls on
+    # datasets with thousands of queries. Use a lookup instead.
+    qid_to_idx = {qid: i for i, qid in enumerate(qids)}
     rankings = {}
     for qid in qids:
         if qid not in base_candidates:
             rankings[qid] = []
             continue
         cand = base_candidates[qid]
-        token_ids = query_token_ids[qids.index(qid)].tolist()
+        token_ids = query_token_ids[qid_to_idx[qid]].tolist()
         idf_vals = torch.tensor([idf_dict.get(tid, 1.0) for tid in token_ids], dtype=torch.float32)
 
         scores = rerank_query(cand['token_scores'], idf_vals, alpha=alpha, beta=beta)

@@ -38,8 +38,8 @@ def main():
     token_ids = qdata['token_ids']
 
     # Grid search candidate values
-    alpha_list = [1.0]
-    beta_list = [0.0, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0]
+    alpha_list = [0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0]
+    beta_list = [0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0]
 
     print(f"{'Config':<20} {'Alpha':<8} {'Beta':<8} {'nDCG@10':>10} {'MRR@10':>10} {'Recall@100':>12}")
     print('-' * 72)
