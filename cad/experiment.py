@@ -111,9 +111,15 @@ def precompute(candidates_path, qdata_path, idf_path):
     pre = []
     for i, qid in enumerate(qids):
         cand = cands.get(qid)
-        if not cand or len(cand.get('candidate_pids', [])) == 0:
+        if not cand:
             continue
-        ts = cand['token_scores'].float()
+        # current artifacts use candidate_pids/candidate_scores; very old ones
+        # used pids/scores.
+        pids = cand.get('candidate_pids', cand.get('pids'))
+        ts_raw = cand.get('token_scores')
+        if pids is None or ts_raw is None or len(pids) == 0:
+            continue
+        ts = ts_raw.float()
         ids = token_ids[i]
         idf_vals = torch.tensor(
             [idf_dict.get(int(t), 1.0) for t in ids.tolist()], dtype=torch.float32,
@@ -122,7 +128,7 @@ def precompute(candidates_path, qdata_path, idf_path):
         pre.append({
             'qid': qid,
             'ts': ts,
-            'pids': cand['candidate_pids'],
+            'pids': pids,
             'idf': idf_vals,
             'valid': valid,
             'sig': {name: fn(ts) for name, fn in SIGNALS.items()},
