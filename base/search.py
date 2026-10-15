@@ -7,6 +7,7 @@ import argparse
 from pathlib import Path
 
 import torch
+from tqdm import tqdm
 
 from base.residual import dequantize_residuals, unpack_bits
 from base.maxsim import maxsim_per_token
@@ -120,7 +121,7 @@ class ColBERTSearcher:
 
     def batch_search(self, Qs, qids, ncells=4, candidate_topn=200, output_topk=100):
         results = {}
-        for qid, Q in zip(qids, Qs):
+        for qid, Q in tqdm(zip(qids, Qs), total=len(qids), desc='Searching queries'):
             results[qid] = self.search_query(
                 Q, ncells=ncells, candidate_topn=candidate_topn, output_topk=output_topk
             )
