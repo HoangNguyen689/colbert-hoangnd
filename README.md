@@ -150,6 +150,14 @@ Ba notebook (runtime GPU T4):
 
 Nên dùng GPU runtime cho encode và search; CAD và evaluation chạy CPU cũng nhanh.
 
+**Chia sẻ giữa các phiên Colab (quan trọng):** mỗi notebook Colab có runtime riêng và `/content` mất khi hết phiên. Hai notebook multi-BEIR mount Google Drive và chỉ đồng bộ **các file kết quả nhỏ** vào `MyDrive/colbert-run/<dataset>/`:
+
+- `rankings_{original,idf,adaptive,cad}.json`, `qrels_test.json` (từ notebook mini)
+- `base_candidates.pt` (để rerank/tune CAD mà không cần encode lại)
+- `official_baseline.json` (từ notebook official)
+
+Nhờ vậy mở phiên mới không phải chạy lại encode/index (~20–25 phút cho 4 tập). Các file nặng (embeddings, residual, IVF) được **giữ local** vì nặng và tái tạo được; đừng đưa lên Drive (dễ tràn 15 GB và đọc chậm hơn).
+
 ---
 
 ## 6. So sánh với Official ColBERTv2
