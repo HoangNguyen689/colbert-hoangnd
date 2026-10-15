@@ -81,7 +81,8 @@ class ColBERTSearcher:
                 cand.update(self.ivf[cid])
         return sorted(list(cand))
 
-    def search_query(self, Q, ncells=4, candidate_topn=200, output_topk=100):
+    def search_query(self, Q, ncells=4, candidate_topn=200, output_topk=100,
+                     token_chunk=131072):
         Q = torch.nn.functional.normalize(Q, p=2, dim=-1)
         candidates = self.get_candidates(Q, ncells=ncells)
 
@@ -93,21 +94,36 @@ class ColBERTSearcher:
             }
 
         candidate_pid_indices = torch.tensor(candidates, dtype=torch.long, device=self.device)
-        emb, cand_of_tok, _ = self.reconstruct_candidates(candidate_pid_indices)
-        sim = Q @ emb.T                       # (query_tokens, total_tokens)
+        n_cand = candidate_pid_indices.numel()
         q_tokens = Q.shape[0]
-
-        # Per-candidate MaxSim: for each query token take the max over that
-        # candidate's tokens, then sum over query tokens. One scatter does the
-        # whole thing; the previous per-candidate Python loop performed a GPU
-        # sync per candidate and dominated the runtime on large datasets.
         token_scores = torch.full(
-            (candidate_pid_indices.numel(), q_tokens), float('-inf'),
-            dtype=sim.dtype, device=self.device,
+            (n_cand, q_tokens), float('-inf'), dtype=Q.dtype, device=self.device,
         )
-        token_scores.scatter_reduce_(
-            0, cand_of_tok.unsqueeze(1).expand(-1, q_tokens), sim.T, reduce='amax',
+
+        # Score in blocks of ~token_chunk tokens. A large corpus can put tens of
+        # thousands of passages into the probed cells, and dequantising all of
+        # them at once does not fit in a 15 GB T4 (CUDA OOM).
+        lengths = torch.tensor(
+            [self.doclens[i] for i in candidates], dtype=torch.long, device=self.device,
         )
+        cum = torch.cumsum(lengths, 0)
+        total = int(cum[-1].item())
+        cuts = torch.searchsorted(
+            cum, torch.arange(token_chunk, total, token_chunk, device=self.device), right=True,
+        ).tolist()
+        bounds = [0] + [c + 1 for c in cuts] + [n_cand]
+
+        for s, e in zip(bounds[:-1], bounds[1:]):
+            if e <= s:
+                continue
+            emb, cand_of_tok, _ = self.reconstruct_candidates(candidate_pid_indices[s:e])
+            sim = Q @ emb.T                       # (query_tokens, block_tokens)
+            rows = cand_of_tok + s
+            token_scores.scatter_reduce_(
+                0, rows.unsqueeze(1).expand(-1, q_tokens), sim.T, reduce='amax',
+            )
+            del emb, sim
+
         scores = token_scores.sum(dim=1)
 
         # Keep a larger candidate pool for rerankers, then return top-k.
