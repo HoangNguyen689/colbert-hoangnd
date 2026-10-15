@@ -9,6 +9,7 @@ Produces:
   outputs/rankings_{original,idf,adaptive,cad}.json
 """
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -17,8 +18,10 @@ from base.datasets import BEIR_DATASETS
 
 
 def run(cmd):
-    print(f'\n>>> {cmd}')
-    ret = subprocess.call(cmd, shell=True)
+    print(f'\n>>> {cmd}', flush=True)
+    # Stream the child's output instead of letting Python block-buffer it.
+    env = {**os.environ, 'PYTHONUNBUFFERED': '1'}
+    ret = subprocess.call(cmd, shell=True, env=env)
     if ret != 0:
         sys.exit(ret)
 
