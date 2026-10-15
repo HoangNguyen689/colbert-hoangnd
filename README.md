@@ -86,6 +86,7 @@ pip install torch transformers scikit-learn datasets beir tqdm numpy colbert-ai
 ```bash
 python run_base.py \
   --data_root data \
+  --dataset scifact \
   --output_dir outputs \
   --K 8192 \
   --n_samples 100000 \
@@ -96,6 +97,8 @@ python run_base.py \
   --doc_batch_size 32 \
   --query_batch_size 32
 ```
+
+`--dataset` hỗ trợ các tập BEIR: `scifact` (mặc định), `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`. Dataset được tải tự động về `data/<dataset>/` khi chạy lần đầu.
 
 Lệnh này tải SciFact qua BEIR, encode, build index, nén residual, build IVF, search, và sinh ra:
 - `outputs/base_candidates.pt` — candidate set + per-token MaxSim `c_i(d)`
@@ -109,7 +112,7 @@ Trên máy có GPU thì dùng `--device cuda`.
 ### 4.2 Chạy CAD
 
 ```bash
-python run_cad.py --output_dir outputs --topk 100
+python run_cad.py --dataset scifact --output_dir outputs --topk 100
 ```
 
 CAD **không chạy retrieval lại**, chỉ đọc `base_candidates.pt`, tính IDF/std-dev, rồi rerank cùng candidate set với 4 ablations:
@@ -165,7 +168,9 @@ Nhận xét:
 
 ## 7. Dữ liệu
 
-SciFact được tải tự động bởi `encode.py` qua BEIR và lưu trong `data/`. Vì corpus, embeddings và index khá nặng, chúng bị loại khỏi git (xem `.gitignore`). Ngườii dùng cần tự chạy pipeline để sinh ra.
+SciFact (và các tập BEIR khác như `nfcorpus`, `scidocs`, `fiqa`, `trec-covid`) được tải tự động bởi `encode.py` qua BEIR và lưu trong `data/`. Vì corpus, embeddings và index khá nặng, chúng bị loại khỏi git (xem `.gitignore`). Người dùng cần tự chạy pipeline để sinh ra.
+
+Để chạy nhiều dataset trên Colab, dùng notebook [`Mini_ColBERTv2_MultiBEIR.ipynb`](Mini_ColBERTv2_MultiBEIR.ipynb).
 
 ---
 

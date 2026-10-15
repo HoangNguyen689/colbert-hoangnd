@@ -12,7 +12,7 @@ from pathlib import Path
 import torch
 from tqdm import tqdm
 
-from base.encode import load_checkpoint, load_scifact
+from base.encode import BEIR_DATASETS, load_beir, load_checkpoint
 
 
 SPECIAL_IDS = {0, 1, 101, 102, 103}
@@ -40,6 +40,7 @@ def compute_idf(cp, corpus, query_token_ids):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='data')
+    parser.add_argument('--dataset', default='scifact', choices=BEIR_DATASETS)
     parser.add_argument('--query_emb', default='outputs/query_embeddings.pt')
     parser.add_argument('--output', default='outputs/idf.pt')
     args = parser.parse_args()
@@ -47,7 +48,7 @@ def main():
     print('Loading checkpoint...')
     cp = load_checkpoint()
     print('Loading corpus...')
-    corpus, _, _ = load_scifact(args.data_root)
+    corpus, _, _ = load_beir(args.data_root, args.dataset)
     qdata = torch.load(args.query_emb, map_location='cpu')
 
     idf = compute_idf(cp, corpus, qdata['token_ids'])

@@ -21,6 +21,8 @@ def run(cmd):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='data')
+    parser.add_argument('--dataset', default='scifact',
+                        choices=['scifact', 'nfcorpus', 'scidocs', 'fiqa', 'trec-covid'])
     parser.add_argument('--output_dir', default='outputs')
     parser.add_argument('--K', type=int, default=8192)
     parser.add_argument('--n_samples', type=int, default=200000)
@@ -38,7 +40,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     device = args.device or 'cpu'
 
-    run(f'python -m base.encode --data_root {args.data_root} --output_dir {args.output_dir} '
+    run(f'python -m base.encode --data_root {args.data_root} --dataset {args.dataset} '
+        f'--output_dir {args.output_dir} '
         f'--doc_batch_size {args.doc_batch_size} --query_batch_size {args.query_batch_size}')
     run(f'python -m base.index --emb_path {out / "doc_embeddings.pt"} --output_dir {args.output_dir} '
         f'--K {args.K} --n_samples {args.n_samples}')

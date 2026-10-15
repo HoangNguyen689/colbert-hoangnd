@@ -1,6 +1,6 @@
 """
 base/encode.py
-Load official ColBERTv2 checkpoint and encode SciFact corpus + queries.
+Load official ColBERTv2 checkpoint and encode a BEIR dataset (corpus + queries).
 Outputs:
   outputs/doc_embeddings.pt  -> {D: tensor, doclens: list, pids: list}
   outputs/metadata.pt        -> {doclens: list, pids: list}
@@ -17,18 +17,23 @@ from colbert.modeling.checkpoint import Checkpoint
 from colbert.infra.config import ColBERTConfig
 
 
-def load_scifact(data_root: str):
-    """Load SciFact corpus, queries, qrels from BEIR format."""
+BEIR_DATASETS = ['scifact', 'nfcorpus', 'scidocs', 'fiqa', 'trec-covid']
+BEIR_URL = 'https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{}.zip'
+
+
+def load_beir(data_root: str, dataset: str = 'scifact'):
+    """Load corpus, queries, qrels from a BEIR-format dataset."""
+    if dataset not in BEIR_DATASETS:
+        raise ValueError(f'Unsupported dataset: {dataset}. Choose from {BEIR_DATASETS}')
     data_root = Path(data_root)
-    corpus_file = data_root / 'scifact' / 'corpus.jsonl'
-    queries_file = data_root / 'scifact' / 'queries.jsonl'
-    qrels_file = data_root / 'scifact' / 'qrels' / 'test.tsv'
+    corpus_file = data_root / dataset / 'corpus.jsonl'
+    queries_file = data_root / dataset / 'queries.jsonl'
+    qrels_file = data_root / dataset / 'qrels' / 'test.tsv'
 
     if not corpus_file.exists() or not queries_file.exists():
-        print('SciFact not found, downloading via BEIR...')
+        print(f'{dataset} not found, downloading via BEIR...')
         from beir import util
-        url = 'https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip'
-        util.download_and_unzip(url, str(data_root))
+        util.download_and_unzip(BEIR_URL.format(dataset), str(data_root))
 
     corpus = {}
     with open(corpus_file, 'r', encoding='utf-8') as f:
@@ -50,6 +55,11 @@ def load_scifact(data_root: str):
             qrels.setdefault(qid, {})[pid] = int(score)
 
     return corpus, queries, qrels
+
+
+def load_scifact(data_root: str):
+    """Backward-compatible alias for load_beir(data_root, 'scifact')."""
+    return load_beir(data_root, 'scifact')
 
 
 def load_checkpoint(checkpoint_name: str = 'colbert-ir/colbertv2.0'):
@@ -105,6 +115,7 @@ def encode_queries(cp, queries, out_path, batch_size=32):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='data')
+    parser.add_argument('--dataset', default='scifact', choices=BEIR_DATASETS)
     parser.add_argument('--output_dir', default='outputs')
     parser.add_argument('--doc_batch_size', type=int, default=32)
     parser.add_argument('--query_batch_size', type=int, default=32)
@@ -116,8 +127,8 @@ def main():
     print('Loading checkpoint...')
     cp = load_checkpoint(args.checkpoint)
 
-    print('Loading SciFact...')
-    corpus, queries, qrels = load_scifact(args.data_root)
+    print(f'Loading {args.dataset}...')
+    corpus, queries, qrels = load_beir(args.data_root, args.dataset)
 
     doc_out = Path(args.output_dir) / 'doc_embeddings.pt'
     metadata_out = Path(args.output_dir) / 'metadata.pt'

@@ -24,6 +24,8 @@ def run(cmd):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='data')
+    parser.add_argument('--dataset', default='scifact',
+                        choices=['scifact', 'nfcorpus', 'scidocs', 'fiqa', 'trec-covid'])
     parser.add_argument('--output_dir', default='outputs')
     parser.add_argument('--topk', type=int, default=100)
     parser.add_argument('--tune', action='store_true', help='run hyperparameter grid search tuning')
@@ -32,8 +34,8 @@ def main():
     out = Path(args.output_dir)
 
     if not (out / 'idf.pt').exists():
-        run(f'python -m cad.idf --data_root {args.data_root} --query_emb {out / "query_embeddings.pt"} '
-            f'--output {out / "idf.pt"}')
+        run(f'python -m cad.idf --data_root {args.data_root} --dataset {args.dataset} '
+            f'--query_emb {out / "query_embeddings.pt"} --output {out / "idf.pt"}')
 
     run(f'python -m cad.rerank --candidates {out / "base_candidates.pt"} '
         f'--query_emb {out / "query_embeddings.pt"} --idf {out / "idf.pt"} '
