@@ -30,7 +30,10 @@ def read_jsonl(path):
 
 
 def clean(text):
-    return str(text).replace("\t", " ").replace("\n", " ").strip()
+    # Collapse ALL whitespace (tab, newline, carriage return, ...) to single
+    # spaces. A bare '\r' inside a BEIR field would otherwise be read back as a
+    # line break and produce a malformed (tab-less) line in collection.tsv.
+    return " ".join(str(text).split())
 
 
 def main():

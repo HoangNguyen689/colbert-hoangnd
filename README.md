@@ -150,6 +150,8 @@ Ba notebook (runtime GPU T4):
 
 Nên dùng GPU runtime cho encode và search; CAD và evaluation chạy CPU cũng nhanh.
 
+> `trec-covid` (171k docs, ~14GB) mặc định **tắt** để tránh OOM trên T4 12GB. Muốn chạy thì bỏ comment dòng `# DATASETS += OPTIONAL_DATASETS` trong cell cấu hình của notebook (nên dùng high-RAM).
+
 **Chia sẻ giữa các phiên Colab (quan trọng):** mỗi notebook Colab có runtime riêng và `/content` mất khi hết phiên. Hai notebook multi-BEIR mount Google Drive và chỉ đồng bộ **các file kết quả nhỏ** vào `MyDrive/colbert-run/<dataset>/`:
 
 - `rankings_{original,idf,adaptive,cad}.json`, `qrels_test.json` (từ notebook mini)
