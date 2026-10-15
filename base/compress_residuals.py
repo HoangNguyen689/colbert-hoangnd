@@ -19,6 +19,8 @@ def main():
     parser.add_argument('--codes_path', default='outputs/codes.pt')
     parser.add_argument('--output_dir', default='outputs')
     parser.add_argument('--nbits', type=int, default=2)
+    parser.add_argument('--chunk', type=int, default=262144,
+                        help='rows processed at a time (keeps peak RAM bounded)')
     parser.add_argument('--no-pack', dest='pack', action='store_false',
                         help='keep residuals as uint8 tensor instead of bit-packing')
     parser.set_defaults(pack=True)
@@ -29,17 +31,30 @@ def main():
     codes = torch.load(args.codes_path, map_location='cpu')
 
     print('Computing residuals...')
-    residuals = compute_residuals(D, centroids, codes)
+    residuals = compute_residuals(D, centroids, codes, chunk=args.chunk)
+    del D, centroids, codes
 
     print('Fitting buckets...')
-    cutoffs, bucket_weights = fit_residual_buckets(residuals, nbits=args.nbits)
+    cutoffs, bucket_weights = fit_residual_buckets(residuals, nbits=args.nbits,
+                                                   chunk=args.chunk)
 
     print('Quantizing residuals...')
     idx = quantize_residuals(residuals, cutoffs)
 
-    recon = dequantize_residuals(idx, bucket_weights)
-    mse = (residuals - recon).pow(2).mean().item()
+    # Reconstruction MSE, computed chunk by chunk: dequantizing the whole tensor
+    # at once allocates another full (N, dim) float tensor plus an int64 cast,
+    # which is what pushed large datasets over Colab's RAM limit.
+    sq_err = 0.0
+    total = 0
+    for start in range(0, residuals.shape[0], args.chunk):
+        block = residuals[start:start + args.chunk]
+        recon = dequantize_residuals(idx[start:start + args.chunk], bucket_weights)
+        sq_err += (block - recon).pow(2).sum().item()
+        total += block.numel()
+        del recon
+    mse = sq_err / max(total, 1)
     print(f'Residual reconstruction MSE: {mse:.6f}')
+    del residuals
 
     out = {'cutoffs': cutoffs, 'bucket_weights': bucket_weights}
     if args.pack:

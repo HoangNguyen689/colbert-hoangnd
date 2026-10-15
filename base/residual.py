@@ -6,20 +6,49 @@ import torch
 import numpy as np
 
 
-def compute_residuals(D, centroids, codes):
-    return D - centroids[codes]
+def compute_residuals(D, centroids, codes, chunk=None):
+    """D - centroids[codes].
+
+    With chunk=None this is a single (N, dim) subtraction. Pass a chunk size to
+    avoid materialising a second full (N, dim) gather, which matters when the
+    embedding tensor is several GB (e.g. fiqa on a 12.7 GB Colab runtime).
+    """
+    if chunk is None:
+        return D - centroids[codes]
+    out = torch.empty_like(D)
+    for start in range(0, D.shape[0], chunk):
+        end = start + chunk
+        out[start:end] = D[start:end] - centroids[codes[start:end]]
+    return out
 
 
-def fit_residual_buckets(residuals, nbits=2):
+def fit_residual_buckets(residuals, nbits=2, chunk=262144):
+    """Fit per-dimension quantile cutoffs and per-bucket mean weights.
+
+    Memory-lean on purpose: cutoffs are computed column by column (torch.quantile
+    sorts its input, so passing the whole (N, dim) tensor needs an extra full
+    copy) and bucket weights are accumulated chunk by chunk instead of building a
+    (N, dim) mask per bucket.
+    """
     levels = 2 ** nbits
+    dim = residuals.shape[1]
+    N = residuals.shape[0]
     quantiles = torch.linspace(1.0 / levels, 1.0 - 1.0 / levels, levels - 1)
-    cutoffs = torch.quantile(residuals, quantiles, dim=0)
 
-    idx = quantize_residuals(residuals, cutoffs)
-    bucket_weights = torch.zeros(levels, residuals.shape[1], dtype=residuals.dtype)
-    for b in range(levels):
-        mask = (idx == b).float()
-        bucket_weights[b] = (residuals * mask).sum(0) / (mask.sum(0) + 1e-8)
+    cutoffs = torch.empty(levels - 1, dim, dtype=residuals.dtype)
+    for d in range(dim):
+        cutoffs[:, d] = torch.quantile(residuals[:, d], quantiles)
+
+    weights = torch.zeros(levels, dim, dtype=torch.float32)
+    counts = torch.zeros(levels, dim, dtype=torch.float32)
+    for start in range(0, N, chunk):
+        block = residuals[start:start + chunk]
+        idx = quantize_residuals(block, cutoffs)
+        for b in range(levels):
+            m = (idx == b)
+            weights[b] += (block * m).sum(0)
+            counts[b] += m.sum(0).to(torch.float32)
+    bucket_weights = (weights / (counts + 1e-8)).to(residuals.dtype)
     return cutoffs, bucket_weights
 
 
