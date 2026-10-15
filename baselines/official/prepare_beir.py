@@ -36,6 +36,30 @@ def clean(text):
     return " ".join(str(text).split())
 
 
+def is_valid_zip(path):
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return zf.testzip() is None
+    except zipfile.BadZipFile:
+        return False
+
+
+def fetch_zip(archive, zip_path):
+    # A download that was interrupted on a previous run leaves a partial file
+    # that is not a valid zip; detect it and download again instead of failing.
+    if zip_path.exists():
+        if is_valid_zip(zip_path):
+            return
+        print(f"Corrupt/partial archive at {zip_path}, re-downloading...")
+        zip_path.unlink()
+
+    print(f"Downloading {archive}...")
+    urllib.request.urlretrieve(BEIR_URL.format(archive), zip_path)
+    if not is_valid_zip(zip_path):
+        zip_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Downloaded {archive}.zip is not a valid archive; retry later.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default="scifact")
@@ -50,9 +74,7 @@ def main():
     cooked.mkdir(parents=True, exist_ok=True)
 
     zip_path = raw / f"{archive}.zip"
-    if not zip_path.exists():
-        print(f"Downloading {archive}...")
-        urllib.request.urlretrieve(BEIR_URL.format(archive), zip_path)
+    fetch_zip(archive, zip_path)
 
     extracted = raw / archive
     if not extracted.exists():
