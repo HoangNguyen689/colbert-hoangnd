@@ -9,6 +9,7 @@ Outputs:
 import os
 import json
 import argparse
+import zipfile
 from pathlib import Path
 
 import torch
@@ -17,6 +18,22 @@ from colbert.modeling.checkpoint import Checkpoint
 from colbert.infra.config import ColBERTConfig
 
 from base.datasets import BEIR_DATASETS, BEIR_URL
+
+
+def _drop_corrupt_archive(data_root: Path, dataset: str):
+    """BEIR's download_and_unzip skips the download when the archive already
+    exists, so a partial/corrupt zip left by an interrupted run would make the
+    unzip fail. Validate it and delete it so it is fetched again."""
+    zip_path = data_root / f'{dataset}.zip'
+    if not zip_path.exists():
+        return
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            if zf.testzip() is not None:
+                raise zipfile.BadZipFile('CRC check failed')
+    except zipfile.BadZipFile:
+        print(f'Corrupt archive {zip_path}, re-downloading...')
+        zip_path.unlink()
 
 
 def load_beir(data_root: str, dataset: str = 'scifact'):
@@ -30,6 +47,7 @@ def load_beir(data_root: str, dataset: str = 'scifact'):
 
     if not corpus_file.exists() or not queries_file.exists():
         print(f'{dataset} not found, downloading via BEIR...')
+        _drop_corrupt_archive(data_root, dataset)
         from beir import util
         util.download_and_unzip(BEIR_URL.format(dataset), str(data_root))
 
