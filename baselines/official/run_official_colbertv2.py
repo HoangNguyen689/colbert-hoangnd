@@ -63,6 +63,14 @@ def main():
         t0 = time.time()
         ranking = searcher.search_all(queries, k=args.k)
         print(f"SEARCH_SECONDS={time.time() - t0:.2f}")
+
+        # ColBERT's Ranking.save() refuses to overwrite an existing file, so clear
+        # any leftovers from a previous run first.
+        out_path = Path(output)
+        for leftover in (out_path, Path(str(out_path) + ".meta")):
+            if leftover.exists():
+                leftover.unlink()
+
         saved = ranking.save(output)
         print("RANKING=", saved)
 

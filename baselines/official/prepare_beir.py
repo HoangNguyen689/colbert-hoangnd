@@ -105,6 +105,15 @@ def main():
     with open(cooked / "qid_map.json", "w", encoding="utf-8") as f:
         json.dump({str(v): k for k, v in q_orig_to_int.items()}, f, indent=2)
 
+    # Sanity check: ColBERT's load_collection expects every line to have at least
+    # pid<TAB>passage. A stray \r used to split a line into a tab-less fragment.
+    bad = 0
+    with open(cooked / "collection.tsv", encoding="utf-8") as f:
+        for line in f:
+            if len(line.strip("\n\r ").split("\t")) < 2:
+                bad += 1
+    assert bad == 0, f"{bad} malformed (tab-less) lines in collection.tsv"
+
     print(f"Prepared {len(docs)} documents, {len(queries)} queries, {len(mapped_qrels)} qrels")
     print("Output:", cooked.resolve())
 

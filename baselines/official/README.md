@@ -31,18 +31,23 @@ pipeline:
 ## Usage (Colab GPU)
 
 On Colab, run from inside a clone of the official ColBERT repo after
-`pip install -e .` and `pip install faiss-gpu-cu12`:
+`pip install -e .` and `pip install faiss-gpu-cu12`. The scripts are run
+**in place** from the mini repo (they only need `colbert` to be importable), so
+the latest version is always used:
 
 ```bash
+cd /content/ColBERT   # so experiments/ and ranking.*.tsv land here
+OFFICIAL=/content/colbert-hoangnd/baselines/official
+
 # 1. Prepare the dataset in ColBERT TSV format
-python prepare_beir.py --dataset nfcorpus --out data
+python $OFFICIAL/prepare_beir.py --dataset nfcorpus --out /content/ColBERT/data
 
 # 2. Build index + retrieve (settings pinned to match mini)
-python run_official_colbertv2.py --dataset nfcorpus --nbits 2 --k 100
+python $OFFICIAL/run_official_colbertv2.py --dataset nfcorpus --nbits 2 --k 100
 
 # 3. Evaluate and save the metrics for the mini report table
-python evaluate_official.py --dataset nfcorpus \
-    --json-out /content/colbert-hoangnd/outputs/nfcorpus/official_baseline.json
+python $OFFICIAL/evaluate_official.py --dataset nfcorpus \
+    --json-out /content/drive/MyDrive/colbert-run/nfcorpus/official_baseline.json
 ```
 
 Then, back in the mini repo:
