@@ -40,21 +40,34 @@ class ColBERTSearcher:
         self.K = self.centroids.shape[0]
 
     def reconstruct_candidates(self, candidate_pid_indices):
-        starts = self.offsets[candidate_pid_indices]
-        ends = self.offsets[torch.tensor([i + 1 for i in candidate_pid_indices], device=self.device)]
+        """Gather the token embeddings of every candidate passage (vectorised).
 
-        token_indices = torch.cat([
-            torch.arange(start.item(), end.item(), device=self.device)
-            for start, end in zip(starts, ends)
-        ])
+        Returns:
+            emb         -> (total_tokens, dim) L2-normalised embeddings
+            cand_of_tok -> (total_tokens,) index of the owning candidate
+            lengths     -> (num_candidates,) token count per candidate
+        """
+        lengths = torch.tensor(
+            [self.doclens[i] for i in candidate_pid_indices.tolist()],
+            dtype=torch.long, device=self.device,
+        )
+        starts = self.offsets[candidate_pid_indices]
+        total = int(lengths.sum().item())
+
+        # Token -> global index, built without a Python loop over candidates.
+        cum = torch.cumsum(lengths, 0) - lengths
+        arange = torch.arange(total, device=self.device)
+        token_indices = (torch.repeat_interleave(starts, lengths)
+                         + (arange - torch.repeat_interleave(cum, lengths)))
+        cand_of_tok = torch.repeat_interleave(
+            torch.arange(candidate_pid_indices.numel(), device=self.device), lengths
+        )
 
         c = self.codes[token_indices]
         ridx = self.residual_idx[token_indices]
         emb = self.centroids[c] + dequantize_residuals(ridx, self.bucket_weights)
         emb = torch.nn.functional.normalize(emb, p=2, dim=-1)
-
-        doclens_candidates = [self.doclens[i] for i in candidate_pid_indices]
-        return emb, doclens_candidates
+        return emb, cand_of_tok, lengths
 
     def get_candidates(self, Q, ncells=4):
         scores = Q @ self.centroids.T
@@ -78,25 +91,29 @@ class ColBERTSearcher:
                 'token_scores': torch.zeros(0, Q.shape[0]),
             }
 
-        emb, doclens_cand = self.reconstruct_candidates(candidates)
-        sim = Q @ emb.T
+        candidate_pid_indices = torch.tensor(candidates, dtype=torch.long, device=self.device)
+        emb, cand_of_tok, _ = self.reconstruct_candidates(candidate_pid_indices)
+        sim = Q @ emb.T                       # (query_tokens, total_tokens)
+        q_tokens = Q.shape[0]
 
-        token_scores = []
-        scores = []
-        offset = 0
-        for length in doclens_cand:
-            ts = sim[:, offset:offset+length].max(dim=-1).values
-            token_scores.append(ts)
-            scores.append(ts.sum().item())
-            offset += length
+        # Per-candidate MaxSim: for each query token take the max over that
+        # candidate's tokens, then sum over query tokens. One scatter does the
+        # whole thing; the previous per-candidate Python loop performed a GPU
+        # sync per candidate and dominated the runtime on large datasets.
+        token_scores = torch.full(
+            (candidate_pid_indices.numel(), q_tokens), float('-inf'),
+            dtype=sim.dtype, device=self.device,
+        )
+        token_scores.scatter_reduce_(
+            0, cand_of_tok.unsqueeze(1).expand(-1, q_tokens), sim.T, reduce='amax',
+        )
+        scores = token_scores.sum(dim=1)
 
-        token_scores = torch.stack(token_scores, dim=0)
-        scores = torch.tensor(scores, device=self.device)
         # Keep a larger candidate pool for rerankers, then return top-k.
         sorted_idx = scores.argsort(descending=True)[:candidate_topn]
 
         return {
-            'candidate_pids': [self.pids[candidates[i]] for i in sorted_idx.tolist()],
+            'candidate_pids': [self.pids[int(p)] for p in candidate_pid_indices[sorted_idx].tolist()],
             'candidate_scores': scores[sorted_idx].tolist(),
             'token_scores': token_scores[sorted_idx].cpu(),
         }
