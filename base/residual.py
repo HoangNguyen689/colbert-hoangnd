@@ -15,7 +15,10 @@ def compute_residuals(D, centroids, codes, chunk=None):
     """
     if chunk is None:
         return D - centroids[codes]
-    out = torch.empty_like(D)
+    # Match the dtype of the unchunked expression: D may be stored in half
+    # precision while centroids are float32, and D - centroids[codes] promotes to
+    # float32. torch.empty_like(D) would silently downcast that back to half.
+    out = torch.empty(D.shape, dtype=torch.result_type(D, centroids))
     for start in range(0, D.shape[0], chunk):
         end = start + chunk
         out[start:end] = D[start:end] - centroids[codes[start:end]]
